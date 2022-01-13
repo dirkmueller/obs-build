@@ -36,165 +36,79 @@ kvm_options=
 kvm_qemu_append="no-kvmclock"
 kvm_cpu="-cpu host"
 
-kvm_check_ppc970() {
-    if ! grep -q -E '(kvm_rma_count.*kvm_hpt_count)|(kvm_hpt_count.*kvm_rma_count)' /proc/cmdline ; then 
-	cleanup_and_exit 3 "put kvm_rma_count=<VM number> or kvm_hpt_count=<> to your boot options"
-    fi
-}
-
-kvm_check_hugetlb() {
-    if ! grep -q "$HUGETLBFSPATH" /proc/mounts ; then
-	cleanup_and_exit 4 "hugetlbfs is not mounted to $HUGETLBFSPATH"
-    fi
-    local HUGETLBBLKSIZE=$(stat -f -c "%S" "$HUGETLBFSPATH")
-    HUGETLBBLKSIZE=$(( ${HUGETLBBLKSIZE:-0} / 1024 ))
-    if test "$HUGETLBBLKSIZE" -lt 1 -o ! -e  "/sys/kernel/mm/hugepages/hugepages-${HUGETLBBLKSIZE}kB" ; then
-	cleanup_and_exit 4 "could not determine hugetlbfs block size"
-    fi
-    local PAGES_FREE=$(cat /sys/kernel/mm/hugepages/hugepages-${HUGETLBBLKSIZE}kB/free_hugepages)
-    local PAGES_REQ=$(( ${VM_MEMSIZE:-64} * 1024 / $HUGETLBBLKSIZE ))
-    if test "$PAGES_FREE" -lt "$PAGES_REQ" ; then
-	echo "expected $PAGES_REQ to be available (have $PAGES_FREE)"
-	echo "please adjust nr_hugepages"
-	cleanup_and_exit 4
-    fi
-}
 
 vm_verify_options_kvm() {
     if test -n "$KILL" -o -n "$DO_WIPE" ; then
 	return
-    fi  
+    fi
 
     vm_kernel=
     vm_initrd=
     vm_cmdline=
-    
-    # newer Ubuntu versions have only kvm executable
-    if test -x "/usr/bin/kvm" -a ! -x "$kvm_bin"; then
-	kvm_bin="/usr/bin/kvm"
-    fi
-
-    # overwrite some options for specific host architectures
-    case `uname -m` in
-	armv7l)
-	    kvm_bin="/usr/bin/qemu-system-arm"
-	    kvm_console=ttyAMA0
-	    kvm_options="-enable-kvm -M virt"
-	    vm_kernel=/boot/zImage
-	    vm_initrd=/boot/initrd
-	    test -e /boot/kernel.obs.guest && vm_kernel=/boot/kernel.obs.guest
-	    test -e /boot/initrd.obs.guest && vm_initrd=/boot/initrd.obs.guest
-	    # prefer the guest kernel/initrd
-	    test -e /boot/zImage.guest && vm_kernel=/boot/zImage.guest
-	    test -e /boot/initrd.guest && vm_initrd=/boot/initrd.guest
-	    kvm_device=virtio-blk-device
-	    kvm_rng_device=virtio-rng-device
-	    ;;
-	armv8l|aarch64)
-	    kvm_bin="/usr/bin/qemu-system-aarch64"
-	    kvm_console=ttyAMA0
-	    kvm_options="-enable-kvm"
-	    vm_kernel=/boot/Image
-	    vm_initrd=/boot/initrd
-	    test -e /boot/kernel.obs.guest && vm_kernel=/boot/kernel.obs.guest
-	    test -e /boot/initrd.obs.guest && vm_initrd=/boot/initrd.obs.guest
-	    if test "${BUILD_ARCH#aarch}" != "$BUILD_ARCH" -o "${BUILD_ARCH#armv8}" != "$BUILD_ARCH"; then
-		test -e /boot/Image.guest && vm_kernel=/boot/Image.guest
-		test -e /boot/initrd.guest && vm_initrd=/boot/initrd.guest
-	    else
-		# Running an armv7 kernel on aarch64
-		# prefer the guest kernel/initrd
-		test -e /boot/Image.guest32 && vm_kernel=/boot/Image.guest32
-		test -e /boot/initrd.guest32 && vm_initrd=/boot/initrd.guest32
-	    fi
-	    # We want to use the host gic version in order to make use
-	    # of all available features (e.g. more than 8 CPUs) and avoid
-	    # the emulation overhead of vGICv2 on a GICv3 host.
-            # move IO into separate I/O thread
-	    kvm_options="$kvm_options -M virt,accel=kvm,usb=off,gic-version=host -sandbox on -object iothread,id=io0"
-	    kvm_device=virtio-blk-device
-	    kvm_device_opts=",iothread=io0"
-	    kvm_rng_device=virtio-rng-device
-	    ;;
-	ppc|ppcle|ppc64|ppc64le)
-	    kvm_bin="/usr/bin/qemu-system-ppc64"
-	    kvm_console=hvc0
-	    kvm_options="-enable-kvm -M pseries"
-	    if grep -q POWER8 /proc/cpuinfo ; then
-	        # This option only exists with QEMU 5.0 or newer
-		if $kvm_bin -machine 'pseries,?' 2>&1 | grep -q cap-ccf-assist ; then
-		kvm_options="-enable-kvm -M pseries,cap-ccf-assist=off"
-		fi
-	    fi
-	    if grep -q "POWER9" /proc/cpuinfo; then
-		# This option has been added in QEMU 2.10
-		if $kvm_bin -machine 'help' 2>&1 | grep -q ^pseries-6; then
-		    kvm_options="-enable-kvm -M pseries,max-cpu-compat=power8"
-		else
-		    kvm_cpu="-cpu host,compat=power8"
-		fi
-	    fi
-	    grep -q PPC970MP /proc/cpuinfo && kvm_check_ppc970
-	    vm_kernel=/boot/vmlinux
-	    vm_initrd=/boot/initrd
-	    test -e /boot/kernel.obs.guest && vm_kernel=/boot/kernel.obs.guest
-	    test -e /boot/initrd.obs.guest && vm_initrd=/boot/initrd.obs.guest
-	    if test "$BUILD_ARCH" = ppc64le -a -e /boot/vmlinuxle ; then
-		vm_kernel=/boot/vmlinuxle
-		vm_initrd=/boot/initrdle
-	    fi
-	    if test -e /boot/vmlinuxbe -a -e /boot/initrdbe ; then
-		if test "$BUILD_ARCH" = ppc -o "$BUILD_ARCH" = ppc64 ; then
-		    vm_kernel=/boot/vmlinuxbe
-		    vm_initrd=/boot/initrdbe
-		fi
-	    fi
-	    grep -q "pSeries" /proc/cpuinfo && kvm_device=scsi-hd	# no virtio on pSeries
-	    grep -q "PowerNV" /proc/cpuinfo || kvm_device=scsi-hd	# no virtio on ppc != power7 yet
-	    ;;
-	s390|s390x)
-	    kvm_bin="/usr/bin/qemu-system-s390x"
-	    kvm_options="-enable-kvm"
-	    kvm_console=hvc0
-	    vm_kernel=/boot/image
-	    vm_initrd=/boot/initrd
-	    test -e /boot/kernel.obs.guest && vm_kernel=/boot/kernel.obs.guest
-	    test -e /boot/initrd.obs.guest && vm_initrd=/boot/initrd.obs.guest
-	    kvm_device=virtio-blk-ccw
-	    kvm_serial_device=virtio-serial-ccw
-	    kvm_rng_device=virtio-rng-ccw
-	    ;;
-	i586|i686|x86_64)
-	    test ! -x $kvm_bin -a -x /usr/bin/qemu-system-x86_64 && kvm_bin=/usr/bin/qemu-system-x86_64
-
-            # build minimal machine - TODO enable sandbox on all architectures
-            # options to evaluate: mem-merge=off
-            kvm_options="-M pc,accel=kvm,usb=off,dump-guest-core=off,vmport=off -sandbox on"
-
-            # from qemu-microvm, minified and hardened PC bios (slightly faster than seabios)
-            test -e /usr/share/qemu/qboot.rom && kvm_options="$kvm_options -bios /usr/share/qemu/qboot.rom"
-
-            # move IO into separate I/O thread
-	    if test "${kvm_device%%-*}" = "virtio" ; then
-                    kvm_options="$kvm_options -object iothread,id=io0"
-		    kvm_device_opts=",iothread=io0"
-            fi
-
-            # TODO appears to be unstable
-	    # $kvm_bin --help | grep -q io_uring && kvm_drive_opts="$kvm_drive_opts,aio=io_uring"
-            ;;
-    esac
 
     # check if we can run kvm
     if ! test -r /dev/kvm ; then
 	cleanup_and_exit 4 "kvm device not accessible: either the kvm kernel-module is not loaded or hardware virtualization is deactivated in the BIOS."
     fi
+
+    # newer Ubuntu versions have only kvm executable
+    if test -x "/usr/bin/kvm" -a ! -x "$kvm_bin"; then
+	kvm_bin="/usr/bin/kvm"
+    fi
+
+    # check if we can find matching qemu-system
+    case $(uname -m) in
+	armv7l)
+	    kvm_bin="/usr/bin/qemu-system-arm"
+	    ;;
+	armv8l|aarch64)
+	    kvm_bin="/usr/bin/qemu-system-aarch64"
+	    ;;
+	ppc|ppcle|ppc64|ppc64le)
+	    kvm_bin="/usr/bin/qemu-system-ppc64"
+	    ;;
+	s390|s390x)
+	    kvm_bin="/usr/bin/qemu-system-s390x"
+	    ;;
+	i586|i686|x86_64)
+	    test ! -x $kvm_bin -a -x /usr/bin/qemu-system-x86_64 && kvm_bin=/usr/bin/qemu-system-x86_64
+            ;;
+    esac
+
     if ! test -x "$kvm_bin" ; then
 	cleanup_and_exit 4 "$kvm_bin is not installed"
     fi
 
     # check hugepages
-    test -n "$HUGETLBFSPATH" -a "$VM_TYPE" = kvm && kvm_check_hugetlb
+    if test -n "$HUGETLBFSPATH"; then
+        if ! grep -q "$HUGETLBFSPATH" /proc/mounts ; then
+            cleanup_and_exit 4 "hugetlbfs is not mounted to $HUGETLBFSPATH"
+        fi
+        local HUGETLBBLKSIZE=$(stat -f -c "%S" "$HUGETLBFSPATH")
+        HUGETLBBLKSIZE=$(( ${HUGETLBBLKSIZE:-0} / 1024 ))
+        if test "$HUGETLBBLKSIZE" -lt 1 -o ! -e  "/sys/kernel/mm/hugepages/hugepages-${HUGETLBBLKSIZE}kB" ; then
+            cleanup_and_exit 4 "could not determine hugetlbfs block size"
+        fi
+        local PAGES_FREE=$(cat /sys/kernel/mm/hugepages/hugepages-${HUGETLBBLKSIZE}kB/free_hugepages)
+        local PAGES_REQ=$(( ${VM_MEMSIZE:-64} * 1024 / $HUGETLBBLKSIZE ))
+        if test "$PAGES_FREE" -lt "$PAGES_REQ" ; then
+            echo "expected $PAGES_REQ to be available (have $PAGES_FREE)"
+            echo "please adjust nr_hugepages"
+            cleanup_and_exit 4
+        fi
+    fi
+
+    # check ppc970 specific options
+    if grep -q PPC970MP /proc/cpuinfo; then
+        if ! grep -q -E '(kvm_rma_count.*kvm_hpt_count)|(kvm_hpt_count.*kvm_rma_count)' /proc/cmdline ; then
+            cleanup_and_exit 3 "put kvm_rma_count=<VM number> or kvm_hpt_count=<> to your boot options"
+        fi
+    fi
+
+    # check for VM_USER
+    if [ -n "$VM_USER" ] ; then
+	getent passwd "$VM_USER" >/dev/null || cleanup_and_exit 3 "cannot find KVM user '$VM_USER'"
+    fi
 
     # set kernel
     test -n "$VM_KERNEL" && vm_kernel="$VM_KERNEL"
@@ -226,53 +140,10 @@ vm_verify_options_kvm() {
 	    fi
 	fi
     fi
-
-    case $kvm_device in
-	virtio*)
-	    VM_ROOTDEV=/dev/disk/by-id/virtio-0
-	    VM_SWAPDEV=/dev/disk/by-id/virtio-1
-	    kvm_qemu_append="kvmclock"
-	    ;;
-	*)
-	    VM_ROOTDEV=/dev/sda
-	    VM_SWAPDEV=/dev/sdb
-	    ;;
-    esac
-
-    if test -n "$VM_NETOPT" -o -n "$VM_NETDEVOPT" ; then
-        if test -n "$VM_NETOPT" ; then
-           for item in "${VM_NETOPT[@]}" ; do
-              kvm_options="$kvm_options -net $item"
-           done
-        fi
-        if test -n "$VM_NETDEVOPT" ; then
-           for item in "${VM_NETDEVOPT[@]}" ; do
-              kvm_options="$kvm_options -netdev $item"
-           done
-        fi
-    fi
-
-    if test -n "$VM_DEVICEOPT" ; then
-        for item in "${VM_DEVICEOPT[@]}" ; do
-            kvm_options="$kvm_options -device $item"
-        done
-    fi
-
-    if test -n "$kvm_rng_device" ; then
-        if test -c /dev/hwrng &&
-           test -w /dev/hwrng &&
-           test -f /sys/class/misc/hw_random/rng_current &&
-           test "$(cat /sys/class/misc/hw_random/rng_current)" != none; then
-            rng_dev="/dev/hwrng"
-        else
-            rng_dev="/dev/random"
-        fi
-        kvm_options="$kvm_options -object rng-random,filename=$rng_dev,id=rng0 -device $kvm_rng_device,rng=rng0"
-    fi
 }
 
 kvm_add_console_args() {
-   local serial_device="$1"
+    local serial_device="$1"
     # the serial console device needs to be compiled into the target kernel
     # which is why we can not use virtio-serial on other platforms
     if test -n "$serial_device" ; then
@@ -293,23 +164,22 @@ kvm_add_console_args() {
 
     # setup the monitor
     if ! test -e "${VM_ROOT}.qemu/monitor"; then
-      mkdir -p "${VM_ROOT}.qemu"
-      mkfifo "${VM_ROOT}.qemu/monitor"
-      test -n "$VM_USER" && chown "$VM_USER" "${VM_ROOT}.qemu"
+        mkdir -p "${VM_ROOT}.qemu"
+        mkfifo "${VM_ROOT}.qemu/monitor"
+        test -n "$VM_USER" && chown "$VM_USER" "${VM_ROOT}.qemu"
     fi
     qemu_args=("${qemu_args[@]}" -chardev socket,id=monitor,server=on,wait=off,path="${VM_ROOT}.qemu/monitor" -mon chardev=monitor,mode=readline)
 }
 
 vm_startup_kvm() {
-    qemu_bin="$kvm_bin"
     qemu_args=(-drive file="$VM_ROOT",format=raw,if=none,id=disk,$kvm_drive_opts -device "$kvm_device$kvm_device_opts",drive=disk,serial=0)
-    if [ -n "$VM_USER" ] ; then
-	getent passwd "$VM_USER" > /dev/null || cleanup_and_exit 3 "cannot find KVM user '$VM_USER'"
-    elif test $UID = 0 ; then
-	# use qemu user by default if available
+
+    # use qemu user by default if available
+    if test -z "$VM_USER" -a $UID = 0 ; then
 	getent passwd qemu >/dev/null && VM_USER=qemu
     fi
     [ -n "$VM_USER" ] && kvm_options="$kvm_options -runas $VM_USER"
+
     if test -n "$VM_SWAP" ; then
 	qemu_args=("${qemu_args[@]}" -drive file="$VM_SWAP",format=raw,if=none,id=swap,$kvm_drive_opts -device "$kvm_device$kvm_device_opts",drive=swap,serial=1)
     fi
@@ -330,9 +200,7 @@ vm_startup_kvm() {
     elif test -n "$BUILD_JOBS" -a -n "$BUILD_THREADS" ; then
 	qemu_args=("${qemu_args[@]}" "-smp" "$BUILD_JOBS,threads=$BUILD_THREADS")
     fi
-    if test "$VM_TYPE" = kvm ; then
-	test -n "$HUGETLBFSPATH" && kvm_options="$kvm_options -mem-prealloc -mem-path $HUGETLBFSPATH"
-    fi
+    test -n "$HUGETLBFSPATH" && kvm_options="$kvm_options -mem-prealloc -mem-path $HUGETLBFSPATH"
     qemu_append="root=$VM_ROOTDEV"
     if test -n "$VMDISK_FILESYSTEM" ; then
         qemu_append="$qemu_append rootfstype=$VMDISK_FILESYSTEM"
@@ -357,7 +225,7 @@ vm_startup_kvm() {
     if test -n "$VM_CUSTOMOPT"; then
         kvm_options="$kvm_options $VM_CUSTOMOPT"
     fi
-    set -- $qemu_bin -nodefaults -no-reboot -nographic -vga none $kvm_cpu $kvm_options \
+    set -- $kvm_bin -nodefaults -no-reboot -nographic -vga none $kvm_cpu $kvm_options \
 	-kernel $vm_kernel \
 	-initrd $vm_initrd \
 	-append "$qemu_append" \
@@ -383,9 +251,154 @@ vm_kill_kvm() {
 }
 
 vm_fixup_kvm() {
+    # overwrite some options for specific host architectures
+    case $BUILD_HOST_ARCH in
+	armv7l)
+	    kvm_console=ttyAMA0
+	    vm_kernel=/boot/zImage
+	    vm_initrd=/boot/initrd
+	    test -e /boot/kernel.obs.guest && vm_kernel=/boot/kernel.obs.guest
+	    test -e /boot/initrd.obs.guest && vm_initrd=/boot/initrd.obs.guest
+	    # prefer the guest kernel/initrd
+	    test -e /boot/zImage.guest && vm_kernel=/boot/zImage.guest
+	    test -e /boot/initrd.guest && vm_initrd=/boot/initrd.guest
+	    kvm_options="$kvm_options -M virt,accel=kvm,usb=off"
+	    kvm_device=virtio-blk-device
+	    kvm_rng_device=virtio-rng-device
+	    ;;
+	armv8l|aarch64)
+	    kvm_console=ttyAMA0
+	    vm_kernel=/boot/Image
+	    vm_initrd=/boot/initrd
+	    test -e /boot/kernel.obs.guest && vm_kernel=/boot/kernel.obs.guest
+	    test -e /boot/initrd.obs.guest && vm_initrd=/boot/initrd.obs.guest
+	    if test "${BUILD_ARCH#aarch}" != "$BUILD_ARCH" -o "${BUILD_ARCH#armv8}" != "$BUILD_ARCH"; then
+		test -e /boot/Image.guest && vm_kernel=/boot/Image.guest
+		test -e /boot/initrd.guest && vm_initrd=/boot/initrd.guest
+	    else
+		# Running an armv7 kernel on aarch64
+		# prefer the guest kernel/initrd
+		test -e /boot/Image.guest32 && vm_kernel=/boot/Image.guest32
+		test -e /boot/initrd.guest32 && vm_initrd=/boot/initrd.guest32
+	    fi
+	    # We want to use the host gic version in order to make use
+	    # of all available features (e.g. more than 8 CPUs) and avoid
+	    # the emulation overhead of vGICv2 on a GICv3 host.
+            # move IO into separate I/O thread
+	    kvm_options="$kvm_options -M virt,accel=kvm,usb=off,gic-version=host -sandbox on -object iothread,id=io0"
+	    kvm_device=virtio-blk-device
+	    kvm_device_opts=",iothread=io0"
+	    kvm_rng_device=virtio-rng-device
+	    ;;
+	ppc|ppcle|ppc64|ppc64le)
+	    kvm_console=hvc0
+	    kvm_options="-enable-kvm -M pseries"
+	    if grep -q POWER8 /proc/cpuinfo ; then
+	        # This option only exists with QEMU 5.0 or newer
+		if $kvm_bin -machine 'pseries,?' 2>&1 | grep -q cap-ccf-assist ; then
+		    kvm_options="-enable-kvm -M pseries,cap-ccf-assist=off"
+		fi
+	    fi
+	    if grep -q "POWER9" /proc/cpuinfo; then
+		# This option has been added in QEMU 2.10
+		if $kvm_bin -machine 'help' 2>&1 | grep -q ^pseries-6; then
+		    kvm_options="-enable-kvm -M pseries,max-cpu-compat=power8"
+		else
+		    kvm_cpu="-cpu host,compat=power8"
+		fi
+	    fi
+	    vm_kernel=/boot/vmlinux
+	    vm_initrd=/boot/initrd
+	    test -e /boot/kernel.obs.guest && vm_kernel=/boot/kernel.obs.guest
+	    test -e /boot/initrd.obs.guest && vm_initrd=/boot/initrd.obs.guest
+	    if test "$BUILD_ARCH" = ppc64le -a -e /boot/vmlinuxle ; then
+		vm_kernel=/boot/vmlinuxle
+		vm_initrd=/boot/initrdle
+	    fi
+	    if test -e /boot/vmlinuxbe -a -e /boot/initrdbe ; then
+		if test "$BUILD_ARCH" = ppc -o "$BUILD_ARCH" = ppc64 ; then
+		    vm_kernel=/boot/vmlinuxbe
+		    vm_initrd=/boot/initrdbe
+		fi
+	    fi
+	    grep -q "pSeries" /proc/cpuinfo && kvm_device=scsi-hd	# no virtio on pSeries
+	    grep -q "PowerNV" /proc/cpuinfo || kvm_device=scsi-hd	# no virtio on ppc != power7 yet
+	    ;;
+	s390|s390x)
+	    kvm_options="-enable-kvm"
+	    kvm_console=hvc0
+	    vm_kernel=/boot/image
+	    vm_initrd=/boot/initrd
+	    test -e /boot/kernel.obs.guest && vm_kernel=/boot/kernel.obs.guest
+	    test -e /boot/initrd.obs.guest && vm_initrd=/boot/initrd.obs.guest
+	    kvm_device=virtio-blk-ccw
+	    kvm_serial_device=virtio-serial-ccw
+	    kvm_rng_device=virtio-rng-ccw
+	    ;;
+	i586|i686|x86_64)
+            # options to evaluate: mem-merge=off
+            kvm_options="-M pc,accel=kvm,usb=off,dump-guest-core=off,vmport=off -sandbox on"
+
+            # from qemu-microvm, minified and hardened PC bios (slightly faster than seabios)
+            test -e /usr/share/qemu/qboot.rom && kvm_options="$kvm_options -bios /usr/share/qemu/qboot.rom"
+
+            # move IO into separate I/O thread
+	    if test "${kvm_device%%-*}" = "virtio" ; then
+                    kvm_options="$kvm_options -object iothread,id=io0"
+		    kvm_device_opts=",iothread=io0"
+            fi
+
+            # TODO appears to be unstable
+	    # $kvm_bin --help | grep -q io_uring && kvm_drive_opts="$kvm_drive_opts,aio=io_uring"
+            ;;
+    esac
+
+    case $kvm_device in
+	virtio*)
+	    VM_ROOTDEV=/dev/disk/by-id/virtio-0
+	    VM_SWAPDEV=/dev/disk/by-id/virtio-1
+	    kvm_qemu_append="kvmclock"
+	    ;;
+	*)
+	    VM_ROOTDEV=/dev/sda
+	    VM_SWAPDEV=/dev/sdb
+	    ;;
+    esac
+
+    if test -n "$VM_NETOPT" -o -n "$VM_NETDEVOPT" ; then
+        if test -n "$VM_NETOPT" ; then
+            for item in "${VM_NETOPT[@]}" ; do
+                kvm_options="$kvm_options -net $item"
+            done
+        fi
+        if test -n "$VM_NETDEVOPT" ; then
+            for item in "${VM_NETDEVOPT[@]}" ; do
+                kvm_options="$kvm_options -netdev $item"
+            done
+        fi
+    fi
+
+    if test -n "$VM_DEVICEOPT" ; then
+        for item in "${VM_DEVICEOPT[@]}" ; do
+            kvm_options="$kvm_options -device $item"
+        done
+    fi
+
+    if test -n "$kvm_rng_device" ; then
+        if test -c /dev/hwrng &&
+           test -w /dev/hwrng &&
+           test -f /sys/class/misc/hw_random/rng_current &&
+           test "$(cat /sys/class/misc/hw_random/rng_current)" != none; then
+            rng_dev="/dev/hwrng"
+        else
+            rng_dev="/dev/random"
+        fi
+        kvm_options="$kvm_options -object rng-random,filename=$rng_dev,id=rng0 -device $kvm_rng_device,rng=rng0"
+    fi
+
     # check if we will use a kernel from the build root, in this case
     # we assume the kernel does virtio
-    if test -z "$VM_KERNEL" -a -e "$BUILD_ROOT/.build.kernel.$VM_TYPE" ; then
+    if test -z "$VM_KERNEL" -a -e "$BUILD_ROOT/.build.kernel.kvm" ; then
 	# ide-hd is the non-virtio default
 	if test "$kvm_device" = ide-hd ; then
 	    kvm_device=virtio-blk-pci
@@ -394,7 +407,7 @@ vm_fixup_kvm() {
 	    kvm_qemu_append="kvmclock"
 	fi
     fi
-    if test "$VM_TYPE" = kvm -a -z "$kvm_serial_device" ; then
+    if test -z "$kvm_serial_device" ; then
 	if test -f "$BUILD_ROOT/.build.console.kvm" -a ! -L "$BUILD_ROOT/.build.console.kvm" && grep -q '^virtio$' "$BUILD_ROOT/.build.console.kvm" ; then
 	    echo "Detected virtio-serial support"
 	    kvm_serial_device=virtio-serial,max_ports=2
@@ -424,7 +437,7 @@ vm_cleanup_kvm() {
 }
 
 vm_sysrq_kvm() {
-    perl -e 'use Socket; socket(SOCK, PF_UNIX, SOCK_STREAM, 0) || die("socket: $!\n"); 
+    perl -e 'use Socket; socket(SOCK, PF_UNIX, SOCK_STREAM, 0) || die("socket: $!\n");
              connect(SOCK, sockaddr_un($ARGV[0])) || die("connect: $!\n");
              syswrite(SOCK, "$ARGV[1]\n");
              shutdown(SOCK, 1);
