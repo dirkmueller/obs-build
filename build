@@ -832,13 +832,11 @@ copy_oldpackages() {
 }
 
 copy_sources() {
-    local include_directories
-    if test -n "$RUNNING_IN_VM" -o "$BUILDTYPE" = kiwi -o "$BUILDTYPE" = docker -o "$BUILDTYPE" = fissile -o "$BUILDTYPE" = podman ; then
-        include_directories=true
-    fi
-    if test -n "$RUNNING_IN_VM" -o -n "$COPY_SOURCES_ASIS" -o -n "$RPM_BUILD_IN_PLACE" ; then
+    if test -n "$RUNNING_IN_VM" -a -z "$RPM_BUILD_IN_PLACE" ; then
+	mv "$1/".[^.]* "$1/"..?* "$1"/* "$2"
+    elif test -n "$COPY_SOURCES_ASIS" -o -n "$RPM_BUILD_IN_PLACE" ; then
 	( shopt -s nullglob ; cp -pRd "$1/".[^.]* "$1/"..?* "$1"/* "$2" )
-    elif test -n "$include_directories" ; then
+    elif test -n "$RUNNING_IN_VM" -o "$BUILDTYPE" = kiwi -o "$BUILDTYPE" = docker -o "$BUILDTYPE" = fissile -o "$BUILDTYPE" = podman ; then
         cp -pRL "$1"/* "$2"
     elif test -e "$1/.git" ; then
 	# check which directory belongs to the git repository and only copy those
