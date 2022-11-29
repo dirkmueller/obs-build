@@ -648,6 +648,12 @@ vm_detect_2nd_stage() {
     mount -n -tdevpts -omode=0620,gid=5 none /dev/pts
     mount -n -ttmpfs none /dev/shm
 
+    if test -d /sys/kernel/mm/lru_gen; then
+        echo "detected LRU:"
+        grep . /sys/kernel/mm/lru_gen/enabled
+        echo y > /sys/kernel/mm/lru_gen/enabled
+    fi
+
     if test -n "$VM_SWAP" ; then
 	if test "$VM_SWAP" != "${VM_SWAP#LABEL=}" ; then
 	    i=$(blkid -l -o device -t "$VM_SWAP")
