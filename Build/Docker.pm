@@ -251,6 +251,7 @@ sub parse {
 
   my $unorderedrepos;
   my $plusrecommended;
+  my $filterbasecontainerpkgs;
   my $useobsrepositories;
   my $nosquash;
   my $dockerfile_data;
@@ -315,6 +316,9 @@ sub parse {
       }
       if ($line =~ /^#!PlusRecommended\s*$/) {
         $plusrecommended = 1;
+      }
+      if ($line =~ /^#!FilterBaseContainerPkgs\s*$/) {
+        $filterbasecontainerpkgs = 1;
       }
       if ($line =~ /^#!UseOBSRepositories\s*$/) {
         $useobsrepositories = 1;
@@ -500,6 +504,7 @@ sub parse {
   }
   push @{$ret->{'deps'}}, '--dorecommends--', '--dosupplements--' if $plusrecommended;
   push @{$ret->{'deps'}}, '--unorderedimagerepos' if $unorderedrepos;
+  push @{$ret->{'deps'}}, '--filterbasecontainerpkgs' if $filterbasecontainerpkgs;
   my $version = $ret->{'version'};
   my $release = $ret->{'release'};
   $release = $cf->{'buildrelease'} if defined $cf->{'buildrelease'};
