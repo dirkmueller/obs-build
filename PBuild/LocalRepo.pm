@@ -205,9 +205,10 @@ sub fetch_gbininfo {
 #
 sub construct_containerannotation {
   my ($builddir, $q, $dst) = @_;
-  my $annotation = $q->{'annotation'};
-  return unless %{$annotation || {}};
-  my $annotationxml = Build::SimpleXML::unparse( { 'annotation' => [ $annotation ] });
+  my %annotation = %{$q->{'annotation'} || {}};
+  return unless %annotation;
+  $_ = ref($_) ? $_ : [ $_ ] for values %annotation;
+  my $annotationxml = Build::SimpleXML::unparse( { 'annotation' => [ \%annotation ] });
   PBuild::Util::writestr($dst, undef, $annotationxml);
 }
 

@@ -78,8 +78,8 @@ sub containerinfo2obsbinlnk {
   return undef if $@;
 
   my $annotation = {};
-  $annotation->{'buildtime'} = [ $d->{'buildtime'} ] if $d->{'buildtime'};
-  $annotation->{'binaryid'} = [ $d->{'imageid'} ] if $d->{'imageid'};
+  $annotation->{'buildtime'} = $d->{'buildtime'} if $d->{'buildtime'};
+  $annotation->{'binaryid'} = $d->{'imageid'} if $d->{'imageid'};
   my $installed = eval { containerinfo2installed($dir, $containerinfo) };
   warn($@) if $@;
   $annotation->{'installed'} = $installed if @{$installed || []};

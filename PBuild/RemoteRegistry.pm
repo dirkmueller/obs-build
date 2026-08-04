@@ -216,6 +216,12 @@ sub queryremotecontainer {
   my $version = 0;
   my @provides = ("$name = $version");
   push @provides, "container:$repotag" unless $name eq "container:$repotag";
+  my $annotation = {
+    'registry_refname' => ($registrydomain =~ /docker\.io/ ? 'docker.io/' : "$registrydomain/") . $refname,
+    'registry_digest' => $digest,
+    'binaryid' => $id,
+  };
+  $annotation->{'registry_fatdigest'} = $fatdigest if $fatdigest;
   my $q = {
     'name' => $name,
     'version' => $version,
@@ -226,16 +232,14 @@ sub queryremotecontainer {
     'location' => $repository,
     'blobs' => \@blobs,
     'containertags' => [ $repotag ],
-    'registry_refname' => ($registrydomain =~ /docker\.io/ ? 'docker.io/' : "$registrydomain/") . $refname,
-    'registry_digest' => $digest,
+    'annotation' => $annotation,
   };
   my $sbom = fetch_sbom($repodir, $registry, $repository, $digest, $ua);
   if ($sbom) {
     $sbom = get_intoto_predicate($sbom);
     my $installed = sbom2installed($sbom);
-    $q->{'installed'} = $installed if @{$installed || []};
+    $annotation->{'installed'} = $installed if @{$installed || []};
   }
-  $q->{'registry_fatdigest'} = $fatdigest if $fatdigest;
   return $q;
 }
 
@@ -386,13 +390,9 @@ sub construct_containertar {
 #
 sub construct_containerannotation {
   my ($meta, $q, $dst) = @_;
-  my $annotation = {};
-  $annotation->{'registry_refname'} = [ $q->{'registry_refname'} ];
-  $annotation->{'registry_digest'} = [ $q->{'registry_digest'} ];
-  $annotation->{'registry_fatdigest'} = [ $q->{'registry_fatdigest'} ] if $q->{'registry_fatdigest'};
-  $annotation->{'binaryid'} = [ $q->{'hdrmd5'} ];
-  $annotation->{'installed'} = $q->{'installed'} if @{$q->{'installed'} || []};
-  my $annotationxml = Build::SimpleXML::unparse( { 'annotation' => [ $annotation ] });
+  my %annotation = %{$q->{'annotation'} || {}};
+  $_ = ref($_) ? $_ : [ $_ ] for values %annotation;
+  my $annotationxml = Build::SimpleXML::unparse( { 'annotation' => [ \%annotation ] });
   PBuild::Util::writestr($dst, undef, $annotationxml);
 }
 
