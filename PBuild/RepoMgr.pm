@@ -216,9 +216,13 @@ sub writecontainerannotation {
   my ($repos, $q, $dstdir) = @_;
   my $repo = $repos->{$q->{'repoid'}};
   die("package $q->{'name'} has no repo\n") unless $repo;
-  if ($q->{'name'} =~ /^container:/ && $repo->{'type'} eq 'registry') {
+  next unless $q->{'name'} =~ /^container:/;
+  if ($repo->{'type'} eq 'registry') {
     PBuild::Util::mkdir_p("$dstdir/containers");
     PBuild::RemoteRegistry::construct_containerannotation($repo->{'meta'}, $q, "$dstdir/containers/annotation");
+  } elsif ($repo->{'type'} eq 'local') {
+    PBuild::Util::mkdir_p("$dstdir/containers");
+    PBuild::LocalRepo::construct_containerannotation($repo->{'dir'}, $q, "$dstdir/containers/annotation");
   }
 }
 

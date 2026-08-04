@@ -40,6 +40,27 @@ sub containerinfo2nevra {
   return $lnk;
 }
 
+sub containerinfo2installed {
+  my ($dir, $containerinfo) = @_;
+  return undef unless $containerinfo =~ s/\.containerinfo$//;
+  if (! -e "$dir/$containerinfo.packages") {
+    return undef unless $containerinfo =~ s/\.docker$//;
+    return undef unless -e "$dir/$containerinfo.packages";
+  }
+  my $fd;
+  open($fd, '<', "$dir/$containerinfo.packages") || return undef;
+  my @installed;
+  while (<$fd>) {
+    my @s = split('\|', $_);
+    next unless @s >= 5;
+    next if $s[0] eq 'gpg-pubkey';
+    my $epoch = $s[1] && ($s[1] =~ /^\d+$/) ? "$s[1]:" : '';
+    push @installed, "$s[0] = $epoch$s[2]-$s[3]";
+  }
+  close($fd);
+  return \@installed;
+}
+
 sub containerinfo2obsbinlnk {
   my ($dir, $containerinfo, $packid) = @_;
   my $d = readcontainerinfo($dir, $containerinfo);
@@ -55,6 +76,16 @@ sub containerinfo2obsbinlnk {
   }
   eval { PBuild::Verify::verify_nevraquery($lnk); PBuild::Verify::verify_filename($d->{'file'}) };
   return undef if $@;
+
+  my $annotation = {};
+  $annotation->{'buildtime'} = [ $d->{'buildtime'} ] if $d->{'buildtime'};
+  $annotation->{'binaryid'} = [ $d->{'imageid'} ] if $d->{'imageid'};
+  my $installed = eval { containerinfo2installed($dir, $containerinfo) };
+  warn($@) if $@;
+  $annotation->{'installed'} = $installed if @{$installed || []};
+  # unlike OBS we do not convert the annotation to xml here
+  $lnk->{'annotation'} = $annotation if %$annotation;
+  
   local *F;
   if ($d->{'tar_md5sum'}) {
     # this is a normalized container

@@ -98,6 +98,67 @@ sub fetch_manifest {
   return ($content, $ct);
 }
 
+# fetch and cache the sbom for a container image digest
+sub fetch_sbom {
+  my ($repodir, $registry, $repository, $digest, $ua) = @_;
+  my ($content, $ct);
+  if (-e "$repodir/sbom.$digest") {
+    $content = PBuild::Util::readstr("$repodir/sbom.$digest");
+    return $content;
+  }
+  my $digtag = $digest;
+  $digtag =~ s/:/-/;
+  my $att_digest;
+  ($content, $ct) = eval { Build::Download::fetch("$registry/v2/$repository/manifests/$digtag.att", 'ua' => $ua, 'accept' => [ $mt_oci_manifest ], 'missingok' => 1) };
+  if (!$@ && $content && $ct eq $mt_oci_manifest) {
+    my $mani = JSON::XS::decode_json($content);
+    for my $l (@{$mani->{'layers'} || []}) {
+      next if ($l->{'mediaType'} || '') ne 'application/vnd.dsse.envelope.v1+json';
+      next if ($l->{'size'} || 0) > 200 * 1024 * 1024;
+      my $annotations = $l->{'annotations'} || {};
+      my $is_att;
+      $is_att = 1 if ($annotations->{'org.open-build-service.intoto.predicatetype'} || '') eq 'https://cyclonedx.org/bom';
+      next unless $is_att;
+      $att_digest = $l->{'digest'};
+      last;
+    }
+  }
+  PBuild::Util::mkdir_p($repodir);
+  if (!$att_digest) {
+    # cache negative result
+    PBuild::Util::writestr("$repodir/sbom.$digest", undef, '');
+    return '';
+  }
+  PBuild::Verify::verify_digest($att_digest);
+  Build::Download::download("$registry/v2/$repository/blobs/$att_digest", "$repodir/.sbom.$digest.$$", "$repodir/sbom.$digest", 'digest' => $att_digest, 'ua' => $ua);
+  return PBuild::Util::readstr("$repodir/sbom.$digest");
+}
+
+sub get_intoto_predicate {
+  my $envelope = JSON::XS::decode_json($_[0]);
+  die("bad payload type\n") unless ($envelope->{'payloadType'} || '') eq 'application/vnd.in-toto+json';
+  die("no payload\n") unless exists $envelope->{'payload'};
+  my $att_json = MIME::Base64::decode_base64($envelope->{'payload'});
+  $envelope = undef;	# free mem
+  my $att = JSON::XS::decode_json($att_json);
+  die("missing predicate\n") unless $att->{'predicate'};
+  return $att->{'predicate'};
+}
+
+sub sbom2installed {
+  my ($att) = @_;
+  my @inst;
+  for my $comp (@{$att->{'components'} || []}) {
+    next unless $comp->{'type'} eq 'library' && $comp->{'name'} && $comp->{'version'} && $comp->{'purl'};
+    next unless $comp->{'purl'} =~ /^pkg:(?:rpm|deb|apk|alpm)\//;       # filter out golang et al
+    next if $comp->{'name'} eq 'gpg-pubkey';
+    my $epoch = '';
+    $epoch = "$1:" if $comp->{'purl'} =~ /[\?\&]epoch=(\d+)/ && $1;
+    push @inst, "$comp->{'name'} = $epoch$comp->{'version'}";
+  }
+  return @inst ? \@inst : undef;
+}
+
 #
 # query a registry about a container
 #
@@ -168,6 +229,12 @@ sub queryremotecontainer {
     'registry_refname' => ($registrydomain =~ /docker\.io/ ? 'docker.io/' : "$registrydomain/") . $refname,
     'registry_digest' => $digest,
   };
+  my $sbom = fetch_sbom($repodir, $registry, $repository, $digest, $ua);
+  if ($sbom) {
+    $sbom = get_intoto_predicate($sbom);
+    my $installed = sbom2installed($sbom);
+    $q->{'installed'} = $installed if @{$installed || []};
+  }
   $q->{'registry_fatdigest'} = $fatdigest if $fatdigest;
   return $q;
 }
@@ -323,6 +390,8 @@ sub construct_containerannotation {
   $annotation->{'registry_refname'} = [ $q->{'registry_refname'} ];
   $annotation->{'registry_digest'} = [ $q->{'registry_digest'} ];
   $annotation->{'registry_fatdigest'} = [ $q->{'registry_fatdigest'} ] if $q->{'registry_fatdigest'};
+  $annotation->{'binaryid'} = [ $q->{'hdrmd5'} ];
+  $annotation->{'installed'} = $q->{'installed'} if @{$q->{'installed'} || []};
   my $annotationxml = Build::SimpleXML::unparse( { 'annotation' => [ $annotation ] });
   PBuild::Util::writestr($dst, undef, $annotationxml);
 }
