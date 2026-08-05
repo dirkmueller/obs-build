@@ -961,6 +961,7 @@ sub readdeps {
   my %recommends;
   my %supplements;
   my %multiarch;
+  my %annotation;
   for my $pkgid (sort keys %$pkginfo) {
     my $pkg = $pkginfo->{$pkgid};
     $provides{$pkgid} = $pkg->{'provides'} if $pkg->{'provides'};
@@ -970,6 +971,7 @@ sub readdeps {
     $recommends{$pkgid} = $pkg->{'recommends'} if $pkg->{'recommends'};
     $supplements{$pkgid} = $pkg->{'supplements'} if $pkg->{'supplements'};
     $multiarch{$pkgid} = $pkg->{'multiarch'} if $pkg->{'multiarch'};
+    $annotation{$pkgid} = $pkg->{'annotation'} if $pkg->{'annotation'};
   }
   $config->{'providesh'} = \%provides;
   $config->{'requiresh'} = \%requires;
@@ -978,6 +980,7 @@ sub readdeps {
   $config->{'recommendsh'} = \%recommends;
   $config->{'supplementsh'} = \%supplements;
   $config->{'multiarchh'} = \%multiarch;
+  $config->{'annotationh'} = \%annotation;
   makewhatprovidesh($config);
 }
 
