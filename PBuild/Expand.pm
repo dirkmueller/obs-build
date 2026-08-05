@@ -97,6 +97,10 @@ sub expand_deps_image {
     return;
   }
   my @deps = @{$p->{'dep'} || []};
+  my $remove_basepackages;
+  if ($p->{'basecontainer'} && ($bconf->{"expandflags:filterbasecontainerpkgs"} || grep {$_ eq '--filterbasecontainerpkgs'} @deps)) {
+    ($remove_basepackages, @deps) = handle_filterbasecontainerpkgs($bconf, $p, @deps);
+  }
   push @deps, '--ignoreignore--' unless ($p->{'buildtype'} || '') eq 'preinstallimage';
   local $bconf->{'type'} = $p->{'buildtype'};
   my ($ok, @edeps) = Build::get_build($bconf, [], @deps);
@@ -104,6 +108,7 @@ sub expand_deps_image {
     delete $p->{'dep_expanded'};
     $p->{'dep_experror'} = join(', ', @edeps);
   } else {
+    @edeps = grep {!$remove_basepackages->{$_}} @edeps if $remove_basepackages;
     $p->{'dep_expanded'} = \@edeps;
   }
 }
@@ -142,5 +147,59 @@ sub expand_deps {
     $p->{'dep_expanded'} = \@edeps;
   }
 }
+
+# process the filterbasecontainerpkgs expand flag
+sub handle_filterbasecontainerpkgs {
+  my ($bconf, $p, @deps) = @_; 
+  my @cdeps = grep {/^(?:\+|\!|\-)?container:/} @deps;
+  return undef, @deps unless $p->{'basecontainer'} && @cdeps;
+  # first expand the containers as we need to use the correct annotation
+  local $bconf->{'type'} = $p->{'buildtype'};
+  my ($ok, @edeps) = Build::get_build($bconf, [], @cdeps);
+  return undef, @deps unless $ok;
+  # replace unexpanded container deps with the expanded ones
+  my %providers = map {$_ => 1} Build::whatprovides($bconf, "container:$p->{'basecontainer'}");
+  my $basen = (grep {$providers{$_}} @edeps)[0];
+  my $annotation = $basen ? ($bconf->{'annotationh'} || {})->{$basen} : undef;
+  my $installed = ($annotation || {})->{'installed'};
+  return undef, @deps unless @{$installed || []};
+  @deps = grep {!/^(?:\+|\!|\-)?container:/} @deps;
+  my $remove_basepackages = {};
+  @deps = filterbasecontainerpkgs($bconf, $installed, $remove_basepackages, @deps);
+  return $remove_basepackages, @edeps, @deps;
+}
+
+sub filterbasecontainerpkgs {
+  my ($bconf, $cinstalled, $remove_basepackages, @deps) = @_;
+  my %keep;
+  for (@deps) {
+    $keep{$1} = 1 if /^([^-\s:][^\s:]*)/;
+  }
+  my $providesh = $bconf->{'providesh'} || {};
+  my $requiresh = $bconf->{'requiresh'} || {};
+  for (@$cinstalled) {
+    next unless /^([^-\s:][^\s:]*)/;
+    my $pname = $1;
+    next if $keep{$pname};
+    next unless $providesh->{$pname};	# do we have a package with the same name?
+    $remove_basepackages->{$pname} = 1 if $remove_basepackages;
+    my $hascplx;
+    my @ign;
+    for my $dep (@{$requiresh->{$pname} || []}) {
+      if ($dep =~ /^\(.* (?:if|unless) .*\)$/) {
+        $hascplx = 1;
+      } else {
+        push @ign, $1 if $dep =~ /^\(*([^-\s:][^\s:]*)/;
+      }
+    }
+    if (!$hascplx) {
+      push @deps, "-$pname";
+    } else {
+      push @deps, map {"-$pname:$_"} @ign;
+    }
+  }
+  return @deps;
+}
+
 
 1;
