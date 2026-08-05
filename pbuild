@@ -71,6 +71,7 @@ if ($root_dir && $dir ne $root_dir) {
     $opts->{'single'} = $1;
     delete $opts->{'buildflavor'};
   }
+  $dir = $root_dir;
 }
 
 if ($opts->{'list-presets'}) {
