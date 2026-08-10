@@ -102,6 +102,17 @@ my $dtd_packagebinaryversionlist = [
      ]],
 ];
 
+my $dtd_binannotation = [
+    'annotation' =>
+        'buildtime',
+        'buildhost',
+        'disturl',
+        'binaryid',
+      [ 'installed' ],          # installed packages in containers
+        'registry_refname',     # in DoD containers
+        'registry_digest',      # in DoD containers
+        'registry_fatdigest',   # in DoD containers
+];
 
 #
 # set the cookie jar for the user agent
@@ -299,6 +310,20 @@ sub recode_deps {
 }
 
 #
+# recode the annotation in a binary from xml to native
+#
+sub recode_annotation {
+  my ($b) = @_;
+  my $annotation = delete $b->{'annotationdata'};
+  if (!$annotation) {
+    $annotation = PBuild::Structured::fromxml(delete($b->{'annotation'}), $dtd_binannotation, 1, 1);
+  } else {
+    delete $annotation->{'repo'};
+  }
+  $b->{'annotation'} = $annotation if $annotation;
+}
+
+#
 # Extract a binary from the cpio archive downloaded by fetchbinaries
 #
 sub fetch_binaries_cpioextract {
@@ -377,6 +402,7 @@ sub fetch_repodata {
       $_->{'location'} = "${baseurl}build/$prp/$arch/_repository/$path";
     }
     recode_deps($_);       # recode deps from testcase format to rpm
+    recode_annotation($_) if $_->{'annotation'};
   }
   return \@bins;
 }
