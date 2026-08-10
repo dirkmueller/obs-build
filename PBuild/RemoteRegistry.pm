@@ -98,18 +98,13 @@ sub fetch_manifest {
   return ($content, $ct);
 }
 
-# fetch and cache the sbom for a container image digest
+# fetch the sbom for a container image digest
 sub fetch_sbom {
   my ($repodir, $registry, $repository, $digest, $ua) = @_;
-  my ($content, $ct);
-  if (-e "$repodir/sbom.$digest") {
-    $content = PBuild::Util::readstr("$repodir/sbom.$digest");
-    return $content;
-  }
   my $digtag = $digest;
   $digtag =~ s/:/-/;
   my $att_digest;
-  ($content, $ct) = eval { Build::Download::fetch("$registry/v2/$repository/manifests/$digtag.att", 'ua' => $ua, 'accept' => [ $mt_oci_manifest ], 'missingok' => 1) };
+  my ($content, $ct) = eval { Build::Download::fetch("$registry/v2/$repository/manifests/$digtag.att", 'ua' => $ua, 'accept' => [ $mt_oci_manifest ], 'missingok' => 1) };
   if (!$@ && $content && $ct eq $mt_oci_manifest) {
     my $mani = JSON::XS::decode_json($content);
     for my $l (@{$mani->{'layers'} || []}) {
@@ -124,14 +119,9 @@ sub fetch_sbom {
     }
   }
   PBuild::Util::mkdir_p($repodir);
-  if (!$att_digest) {
-    # cache negative result
-    PBuild::Util::writestr("$repodir/sbom.$digest", undef, '');
-    return '';
-  }
+  return '' unless $att_digest;
   PBuild::Verify::verify_digest($att_digest);
-  Build::Download::download("$registry/v2/$repository/blobs/$att_digest", "$repodir/.sbom.$digest.$$", "$repodir/sbom.$digest", 'digest' => $att_digest, 'ua' => $ua);
-  return PBuild::Util::readstr("$repodir/sbom.$digest");
+  return (Build::Download::fetch("$registry/v2/$repository/blobs/$att_digest", 'digest' => $att_digest, 'ua' => $ua))[0];
 }
 
 sub get_intoto_predicate {
@@ -160,10 +150,37 @@ sub sbom2installed {
 }
 
 #
+# create a binary referencing a container on a remote registry
+#
+sub createcontainerbinary {
+  my ($repository, $repotag, $imageid, $blobs, $annotation) = @_;
+  my $name = $repotag;
+  $name =~ s/[:\/]/-/g;
+  $name = "_$name" if $name =~ /^_/;    # just in case
+  $name = "container:$name";
+  my $version = 0;
+  my @provides = ("$name = $version");
+  push @provides, "container:$repotag" unless $name eq "container:$repotag";
+  my $q = {
+    'name' => $name,
+    'version' => $version,
+    'arch' => 'noarch',
+    'source' => $name,
+    'provides' => \@provides,
+    'hdrmd5' => $imageid,
+    'location' => $repository,
+    'blobs' => $blobs,
+    'containertags' => [ $repotag ],
+    'annotation' => $annotation,
+  };
+  return $q;
+}
+
+#
 # query a registry about a container
 #
 sub queryremotecontainer {
-  my ($ua, $arch, $repodir, $registry, $repotag) = @_;
+  my ($ua, $arch, $repodir, $registry, $repotag, $oldbin) = @_;
   my $registrydomain = $registry;
   $registrydomain =~ s/^[^\/]+\/\///;
   $registrydomain =~ s/\/.*//;
@@ -186,6 +203,14 @@ sub queryremotecontainer {
   die("no content type set in answer\n") unless $ct;
   my $digest = $replyheaders->{'docker-content-digest'};
   die("no docker-content-digest set in answer\n") unless $digest;
+  # reuse the old binary data if it matches the digest
+  my $oldannotation = ($oldbin || {})->{'annotation'};
+  if ($oldannotation && $oldannotation->{'binaryid'} && ($oldannotation->{'registry_digest'} eq $digest || ($oldannotation->{'registry_fatdigest'} || '') eq $digest)) {
+    # tag is unchanged, reuse data from old binary
+    my $annotation = { %$oldannotation };
+    $annotation->{'registry_refname'} = ($registrydomain =~ /docker\.io/ ? 'docker.io/' : "$registrydomain/") . $refname;
+    return createcontainerbinary($repository, $repotag, $oldannotation->{'binaryid'}, $oldbin->{'blobs'}, $annotation);
+  }
   my $fatdigest;
   if ($ct eq $mt_docker_manifestlist || $ct eq $mt_oci_index) {
     # fat manifest, select the one we want
@@ -206,41 +231,22 @@ sub queryremotecontainer {
   push @blobs, $r->{'config'};
   push @blobs, @{$r->{'layers'} || []};
   PBuild::Verify::verify_digest($_->{'digest'}) for @blobs;
-  my $id = $blobs[0]->{'digest'};
-  $id =~ s/.*://;
-  $id = substr($id, 0, 32);
-  my $name = $repotag;
-  $name =~ s/[:\/]/-/g;
-  $name = "_$name" if $name =~ /^_/;    # just in case
-  $name = "container:$name";
-  my $version = 0;
-  my @provides = ("$name = $version");
-  push @provides, "container:$repotag" unless $name eq "container:$repotag";
+  my $imageid= $blobs[0]->{'digest'};
+  $imageid=~ s/.*://;
+  $imageid= substr($imageid, 0, 32);
   my $annotation = {
     'registry_refname' => ($registrydomain =~ /docker\.io/ ? 'docker.io/' : "$registrydomain/") . $refname,
     'registry_digest' => $digest,
-    'binaryid' => $id,
+    'binaryid' => $imageid,
   };
   $annotation->{'registry_fatdigest'} = $fatdigest if $fatdigest;
-  my $q = {
-    'name' => $name,
-    'version' => $version,
-    'arch' => 'noarch',
-    'source' => $name,
-    'provides' => \@provides,
-    'hdrmd5' => $id,
-    'location' => $repository,
-    'blobs' => \@blobs,
-    'containertags' => [ $repotag ],
-    'annotation' => $annotation,
-  };
   my $sbom = fetch_sbom($repodir, $registry, $repository, $digest, $ua);
   if ($sbom) {
     $sbom = get_intoto_predicate($sbom);
     my $installed = sbom2installed($sbom);
     $annotation->{'installed'} = $installed if @{$installed || []};
   }
-  return $q;
+  return createcontainerbinary($repository, $repotag, $imageid, \@blobs, $annotation);
 }
 
 #
@@ -248,14 +254,11 @@ sub queryremotecontainer {
 #
 sub fetchrepo {
   my ($bconf, $arch, $repodir, $url, $repotags, $opts) = @_;
-  my $oldtags = {};
-  if ($opts->{'single'} || $opts->{'no-repo-refresh'}) {
-    my $oldmetadata = (-s "$repodir/_metadata") ? PBuild::Util::retrieve("$repodir/_metadata", 1) : undef;
-    $oldtags = $oldmetadata->{'tags'} if $oldmetadata && $oldmetadata->{'tags'};
-  }
+  my $oldmetadata = (-s "$repodir/_metadata") ? PBuild::Util::retrieve("$repodir/_metadata", 1) : undef;
+  my $oldtags = ($oldmetadata || {})->{'tags'} || {};
   my $ua;
   my %tags;
-  %tags = %$oldtags if $oldtags && $opts->{'single'};	# repotags is incomplete
+  %tags = %$oldtags if $opts->{'single'};	# repotags is incomplete
   my @bins;
   for my $repotag (@{$repotags || []}) {
     my $rt = $repotag;
@@ -265,7 +268,7 @@ sub fetchrepo {
       $bin = $oldtags->{$rt};
     } else {
       $ua ||= Build::Download::create_ua();
-      $bin = queryremotecontainer($ua, $arch, $repodir, $url, $rt);
+      $bin = queryremotecontainer($ua, $arch, $repodir, $url, $rt, $oldtags->{$rt});
     }
     push @bins, $bin if $bin;
     $tags{$rt} = $bin;
