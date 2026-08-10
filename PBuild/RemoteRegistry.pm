@@ -167,7 +167,7 @@ sub createcontainerbinary {
     'arch' => 'noarch',
     'source' => $name,
     'provides' => \@provides,
-    'hdrmd5' => $binaryid,
+    'hdrmd5' => substr($binaryid, 0, 32),
     'location' => $repository,
     'blobs' => $blobs,
     'containertags' => [ $repotag ],
@@ -242,7 +242,6 @@ sub queryremotecontainer {
   PBuild::Verify::verify_digest($_->{'digest'}) for @blobs;
   my $binaryid = $blobs[0]->{'digest'};
   $binaryid =~ s/.*://;
-  $binaryid = substr($binaryid, 0, 32);
   my $annotation = {
     'registry_refname' => ($registrydomain =~ /docker\.io/ ? 'docker.io/' : "$registrydomain/") . $refname,
     'registry_digest' => $digest,
