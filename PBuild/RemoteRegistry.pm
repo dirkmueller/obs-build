@@ -80,7 +80,7 @@ sub fetch_manifest {
   my ($data, $ct);
   eval { ($data, $ct) = Build::Download::head(@args) };
   die($@) if $@ && $@ !~ /401 Unauthorized/;	# sigh, docker returns 401 for not-existing repositories
-  return undef unless $data;
+  return (undef, $ct) unless $data;
   my $digest = $data->{'docker-content-digest'};
   return Build::Download::fetch(@args) unless $digest;
   my $content = PBuild::Util::readstr("$repodir/manifest.$digest", 1);
@@ -194,23 +194,34 @@ sub queryremotecontainer {
     $repository = $2 if $repository =~ /^([^\/]+)\/(.+)$/s && $1 eq $registrydomain;
     $refname = "$repository:$tag";
   }
-
+  # use an if-none-match query if we have the old binary data
+  my $olddigest;
+  my $oldannotation = ($oldbin || {})->{'annotation'};
+  if ($oldannotation && $oldannotation->{'binaryid'}) {
+    $olddigest = $oldannotation->{'registry_fatdigest'} || $oldannotation->{'registry_digest'};
+  }
+  my $tagqueryheaders = $olddigest ? [ 'If-None-Match' => "\"$olddigest\"" ] : undef;
   my @accept = ($mt_docker_manifestlist, $mt_docker_manifest, $mt_oci_index, $mt_oci_manifest);
   my $replyheaders;
   my ($data, $ct) = fetch_manifest($repodir, $registry, "$registry/v2/$repository/manifests/$tag",
-	'ua' => $ua, 'accept' => \@accept, 'missingok' => 1, 'replyheaders' => \$replyheaders);
-  return undef unless defined $data;
-  die("no content type set in answer\n") unless $ct;
+	'ua' => $ua, 'accept' => \@accept, 'missingok' => 1,
+	'headers' => $tagqueryheaders, 'notmodifiedok' => ($olddigest ? 1 : 0),
+	'replyheaders' => \$replyheaders);
+  if (!defined($data)) {
+    return undef unless $olddigest && $ct && $ct == 304;
+    $replyheaders = { 'docker-content-digest' => $olddigest };
+  }
   my $digest = $replyheaders->{'docker-content-digest'};
   die("no docker-content-digest set in answer\n") unless $digest;
   # reuse the old binary data if it matches the digest
-  my $oldannotation = ($oldbin || {})->{'annotation'};
   if ($oldannotation && $oldannotation->{'binaryid'} && ($oldannotation->{'registry_digest'} eq $digest || ($oldannotation->{'registry_fatdigest'} || '') eq $digest)) {
     # tag is unchanged, reuse data from old binary
     my $annotation = { %$oldannotation };
     $annotation->{'registry_refname'} = ($registrydomain =~ /docker\.io/ ? 'docker.io/' : "$registrydomain/") . $refname;
     return createcontainerbinary($repository, $repotag, $oldannotation->{'binaryid'}, $oldbin->{'blobs'}, $annotation);
   }
+  die("content missing from answer\n") unless $data;
+  die("no content type set in answer\n") unless $ct;
   my $fatdigest;
   if ($ct eq $mt_docker_manifestlist || $ct eq $mt_oci_index) {
     # fat manifest, select the one we want
