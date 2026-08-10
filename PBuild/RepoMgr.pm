@@ -173,6 +173,15 @@ sub copyimagebinaries {
       $to =~ s/[\/:]/_/g;
       PBuild::Verify::verify_filename($to);
       $to = "$dstdir/containers/$to";
+      if ($q->{'annotation'}) {
+	my $to_ann = $to;
+	$to_ann =~ s/\.tar$/.annotation/;
+        if ($repo->{'type'} eq 'registry') {
+	  PBuild::RemoteRegistry::construct_containerannotation($repo->{'meta'}, $q, $to_ann);
+	} elsif ($repo->{'type'} eq 'local') {
+	  PBuild::LocalRepo::construct_containerannotation($repo->{'dir'}, $q, $to_ann);
+	}
+      }
     } elsif ($q->{'name'} =~ /^mkosi:/) {
       $to = "$dstdir/$q->{'lnk'}";
     } else {
@@ -216,7 +225,7 @@ sub writecontainerannotation {
   my ($repos, $q, $dstdir) = @_;
   my $repo = $repos->{$q->{'repoid'}};
   die("package $q->{'name'} has no repo\n") unless $repo;
-  next unless $q->{'name'} =~ /^container:/;
+  return unless $q->{'name'} =~ /^container:/;
   if ($repo->{'type'} eq 'registry') {
     PBuild::Util::mkdir_p("$dstdir/containers");
     PBuild::RemoteRegistry::construct_containerannotation($repo->{'meta'}, $q, "$dstdir/containers/annotation");
