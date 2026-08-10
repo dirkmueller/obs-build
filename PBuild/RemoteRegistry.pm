@@ -397,15 +397,4 @@ sub construct_containertar {
   close($fd) || die;
 }
 
-#
-# write the annotation for a container binary pulled from a registry
-#
-sub construct_containerannotation {
-  my ($meta, $q, $dst) = @_;
-  my %annotation = %{$q->{'annotation'} || {}};
-  $_ = ref($_) ? $_ : [ $_ ] for values %annotation;
-  my $annotationxml = Build::SimpleXML::unparse( { 'annotation' => [ \%annotation ] });
-  PBuild::Util::writestr($dst, undef, $annotationxml);
-}
-
 1;

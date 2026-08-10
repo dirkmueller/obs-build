@@ -22,8 +22,6 @@ package PBuild::LocalRepo;
 
 use strict;
 
-use Build::SimpleXML;	# for annotation writing
-
 use PBuild::Verify;
 use PBuild::Util;
 use PBuild::BuildResult;
@@ -198,18 +196,6 @@ sub cleanup_builddir {
 sub fetch_gbininfo {
   my ($builddir) = @_;
   return PBuild::Util::retrieve("$builddir/.pbuild/_bininfo");
-}
-
-#
-# write the annotation for a built container
-#
-sub construct_containerannotation {
-  my ($builddir, $q, $dst) = @_;
-  my %annotation = %{$q->{'annotation'} || {}};
-  return unless %annotation;
-  $_ = ref($_) ? $_ : [ $_ ] for values %annotation;
-  my $annotationxml = Build::SimpleXML::unparse( { 'annotation' => [ \%annotation ] });
-  PBuild::Util::writestr($dst, undef, $annotationxml);
 }
 
 1;
