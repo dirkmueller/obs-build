@@ -153,7 +153,7 @@ sub sbom2installed {
 # create a binary referencing a container on a remote registry
 #
 sub createcontainerbinary {
-  my ($repository, $repotag, $imageid, $blobs, $annotation) = @_;
+  my ($repository, $repotag, $binaryid, $blobs, $annotation) = @_;
   my $name = $repotag;
   $name =~ s/[:\/]/-/g;
   $name = "_$name" if $name =~ /^_/;    # just in case
@@ -167,7 +167,7 @@ sub createcontainerbinary {
     'arch' => 'noarch',
     'source' => $name,
     'provides' => \@provides,
-    'hdrmd5' => $imageid,
+    'hdrmd5' => $binaryid,
     'location' => $repository,
     'blobs' => $blobs,
     'containertags' => [ $repotag ],
@@ -237,18 +237,16 @@ sub queryremotecontainer {
   }
   die("unknown content type\n") unless $ct eq $mt_docker_manifest || $ct eq $mt_oci_manifest;
   my $r = JSON::XS::decode_json($data);
-  my @blobs;
-  die("manifest has no config\n") unless $r->{'config'};
-  push @blobs, $r->{'config'};
-  push @blobs, @{$r->{'layers'} || []};
+  die("dist manifest has no config\n") unless $r->{'config'};
+  my @blobs = ($r->{'config'}, @{$r->{'layers'} || []});
   PBuild::Verify::verify_digest($_->{'digest'}) for @blobs;
-  my $imageid= $blobs[0]->{'digest'};
-  $imageid=~ s/.*://;
-  $imageid= substr($imageid, 0, 32);
+  my $binaryid = $blobs[0]->{'digest'};
+  $binaryid =~ s/.*://;
+  $binaryid = substr($binaryid, 0, 32);
   my $annotation = {
     'registry_refname' => ($registrydomain =~ /docker\.io/ ? 'docker.io/' : "$registrydomain/") . $refname,
     'registry_digest' => $digest,
-    'binaryid' => $imageid,
+    'binaryid' => $binaryid,
   };
   $annotation->{'registry_fatdigest'} = $fatdigest if $fatdigest;
   my $sbom = fetch_sbom($repodir, $registry, $repository, $digest, $ua);
@@ -257,7 +255,7 @@ sub queryremotecontainer {
     my $installed = sbom2installed($sbom);
     $annotation->{'installed'} = $installed if @{$installed || []};
   }
-  return createcontainerbinary($repository, $repotag, $imageid, \@blobs, $annotation);
+  return createcontainerbinary($repository, $repotag, $binaryid, \@blobs, $annotation);
 }
 
 #
