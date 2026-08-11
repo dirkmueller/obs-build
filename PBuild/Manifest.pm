@@ -29,6 +29,7 @@ sub read_manifest {
   die("Need YAML::XS to parse the _manifest file\n") unless defined &YAML::XS::LoadFile;
   my $manifest = eval { YAML::XS::LoadFile("$dir/_manifest") };
   die("Could not parse _manifest file: $@") if $@;
+  return {} unless defined $manifest;
   die("Bad _manifest file\n") unless ref($manifest) eq 'HASH';
   return $manifest;
 }
