@@ -754,7 +754,7 @@ postprocess_kiwi_containers() {
 		echo "Generating $format sbom file for ${r##*/}"
 		containerformat="docker"
 		test "${r%.oci.tar}" != "$r" && containerformat="oci"
-		generate_sbom --format "$format" ${BUILD_BUILDTIME:+--buildtime=$BUILD_BUILDTIME} "--container-${containerformat}-archive" "$r" > "${r%.tar}.${format/cyclonedx/cdx}.json"
+		generate_sbom --dist "$BUILD_DIST" --configdir "$CONFIG_DIR" --arch "$BUILD_ARCH" --format "$format" ${BUILD_BUILDTIME:+--buildtime=$BUILD_BUILDTIME} "--container-${containerformat}-archive" "$r" > "${r%.tar}.${format/cyclonedx/cdx}.json"
 		test -s "${r%.tar}.${format/cyclonedx/cdx}.json" || rm -f "${r%.tar}.${format/cyclonedx/cdx}.json"
 	    done
 	else
