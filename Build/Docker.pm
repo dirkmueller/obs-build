@@ -423,6 +423,7 @@ sub parse {
       $from_seen = 1;
     } elsif ($cmd eq 'RUN') {
       $line =~ s/#.*//;	# get rid of comments
+      1 while $line =~ s/^--(?:mount|network)=\S*\s+//;
       my @runlines = ($line);
       if ($line =~ /^<<(\S+)/) {
 	my $delim = $1;
@@ -445,6 +446,7 @@ sub parse {
 	  $l =~ s/^\s+//;
 	  $l =~ s/\s+$//;
 	  $l = expandvars($l, $vars) if $l =~ /\$/;
+	  1 while $l =~ s/^[a-zA-Z0-9_]+=\S*\s+//;	# strip env var settings
 	  @args = split(/[ \t]+/, $l);
 	  s/%([a-fA-F0-9]{2})/chr(hex($1))/ge for @args;
 	  next unless @args;
