@@ -36,7 +36,6 @@ sub read_manifest {
 
 sub find_packages {
   my ($root_dir, $pkg_dirs) = @_;
-  $seend_sd ||= {};
   my $manifest = read_manifest($root_dir);
   my @pkgs;
   my @skippkgs;
