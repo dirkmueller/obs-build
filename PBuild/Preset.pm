@@ -37,6 +37,8 @@ my $dtd_pbuild = [
 	  [ 'assets' ],
 	    'obs',
 	  [ 'hostrepo' ],
+	  [ 'architectures' ],
+	    'obsgit',
      ]],
 ];
 
@@ -53,20 +55,43 @@ sub read_preset_file {
   return PBuild::Structured::fromxml($pbuild_str, $dtd_pbuild);
 }
 
+sub read_manifest_file {
+  my ($dir) = @_;
+  eval { require YAML::XS; $YAML::XS::LoadBlessed = 0; };
+  die("Need YAML::XS to parse the _manifest file\n") unless defined &YAML::XS::LoadFile;
+  my $manifest = eval { YAML::XS::LoadFile("$dir/_manifest") };
+  die("Could not parse _manifest file: $@") if $@;
+  return {} unless defined $manifest;
+  die("Bad _manifest file\n") unless ref($manifest) eq 'HASH';
+  return $manifest;
+}
+
+sub get_presets_array {
+  my ($dir) = @_;
+  if (-f "$dir/_pbuild") {
+    my $pbuild = read_preset_file($dir);
+    return $pbuild->{'preset'};
+  } elsif (-f "$dir/_manifest") {
+    my $manifest = read_manifest_file($dir);
+    return undef unless ref($manifest->{'presets'}) eq 'ARRAY';
+    my $presets = PBuild::Structured::postprocess({ 'pbuild' => [ { 'preset' => $manifest->{'presets'} } ] }, $dtd_pbuild);
+    return $presets->{'preset'};
+  }
+  return undef;
+}
+
 # read presets, take default if non given.
 sub read_presets {
   my ($dir, $presetname) = @_;
-  if (-f "$dir/_pbuild") {
-    my $pbuild = read_preset_file($dir);
-    for my $preset (@{$pbuild->{'preset'} || []}) {
-      next unless $preset->{'name'};
-      if (defined($presetname)) {
-	# check for selected preset
-	return $preset if $presetname eq $preset->{'name'};
-      } else {
-	# check for default
-	return $preset if exists $preset->{'default'};
-      }
+  my $presets = get_presets_array($dir);
+  for my $preset (@{$presets || []}) {
+    next unless $preset->{'name'};
+    if (defined($presetname)) {
+      # check for selected preset
+      return $preset if $presetname eq $preset->{'name'};
+    } else {
+      # check for default
+      return $preset if exists $preset->{'default'};
     }
   }
   die("unknown preset '$presetname'\n") if defined $presetname;
@@ -77,14 +102,11 @@ sub read_presets {
 sub known_presets {
   my ($dir) = @_;
   my @presetnames;
-  if (-f "$dir/_pbuild") {
-    my $pbuild = read_preset_file($dir);
-    for my $d (@{$pbuild->{'preset'} || []}) {
-      push @presetnames, $d->{'name'} if defined $d->{'name'};
-    }
-    @presetnames = PBuild::Util::unify(@presetnames);
+  my $presets = get_presets_array($dir);
+  for my $d (@{$presets || []}) {
+    push @presetnames, $d->{'name'} if defined $d->{'name'};
   }
-  return @presetnames;
+  return PBuild::Util::unify(@presetnames);
 }
 
 # show presets
