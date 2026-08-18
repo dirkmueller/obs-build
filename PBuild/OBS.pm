@@ -120,11 +120,8 @@ my $dtd_binannotation = [
 sub set_cookie_jar {
   my ($ua) = @_;
   if (!defined($cookie_jar)) {
-    eval {
-      require HTTP::Cookies;
-      $cookie_jar = HTTP::Cookies->new();
-    };
-    $cookie_jar = 0 unless $cookie_jar;
+    $cookie_jar = eval { require HTTP::Cookies; HTTP::Cookies->new() };
+    $cookie_jar ||= 0;
   }
   $ua->cookie_jar($cookie_jar) if $cookie_jar;
 }

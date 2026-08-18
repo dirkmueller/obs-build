@@ -53,7 +53,7 @@ sub get_buildtimeservices {
   my ($p) = @_;
   return () unless $p->{'files'}->{'_service'};
   my @bt;
-  my $services = parse_service($p);
+  my $services = parse_service($p) || {};
   for my $service (@{$services->{'service'} || []}) {
     push @bt, $service->{'name'} if ($service->{'mode'} || '') eq 'buildtime';
   }
