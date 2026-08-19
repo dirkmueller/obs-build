@@ -81,10 +81,10 @@ if ($opts->{'list-presets'}) {
 
 # read old options
 my $oldlastdata = PBuild::Util::retrieve("$dir/.pbuild/lastdata", 1) || {};
-if (!defined($opts->{'preset'}) && $oldlastdata->{'preset'}) {
+if (!defined($opts->{'preset'}) && defined($oldlastdata->{'preset'})) {
   # take preset from old data
   $opts->{'preset'} = $oldlastdata->{'preset'};
-  print "Using last preset: $opts->{'preset'}\n";
+  print "Using last preset: $opts->{'preset'}\n" if $opts->{'preset'} ne '';
 }
 
 # read preset
@@ -191,7 +191,7 @@ if ($preset && $preset->{'obsgit'}) {
 
 # apply presets
 PBuild::Preset::apply_preset($opts, $preset) if $preset;
-print "Using default preset: $preset->{'name'}\n" if $preset && !$opts->{'preset'};
+print "Using default preset: $preset->{'name'}\n" if $preset && !defined($opts->{'preset'});
 
 my $reponame = $opts->{'reponame'};
 if (!$reponame && $opts->{'dist'}) {
@@ -215,7 +215,7 @@ if (!$opts->{'dist'} && !(-e "$dir/_config" || -e "$dir/_pbuild")) {
 
 # update lastdata and lastopts
 my $newlastdata = { 'builddir' => $builddir };
-$newlastdata->{'preset'} = $opts->{'preset'} if defined($opts->{'preset'}) && $opts->{'preset'} ne '';
+$newlastdata->{'preset'} = $opts->{'preset'} if defined($opts->{'preset'});
 eval { PBuild::Util::mkdir_p("$dir/.pbuild") ; PBuild::Util::store_unless_identical("$dir/.pbuild/.lastdata.$$", "$dir/.pbuild/lastdata", $newlastdata, $oldlastdata) };
 eval { PBuild::Util::mkdir_p("$builddir/.pbuild") ; PBuild::Util::store_unless_identical("$builddir/.pbuild/.lastopts.$$", "$builddir/.pbuild/lastopts", $newlastopts, $oldlastopts) };
 
