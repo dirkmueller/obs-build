@@ -148,6 +148,39 @@ $opts->{'hostarch'} = $hostarch;
 $opts->{'buildjobs'} = 1 unless $opts->{'buildjobs'};
 $opts->{'buildjobs'} = 32 if $opts->{'buildjobs'} > 32;
 
+# setup network debug if requested
+$Build::Download::debug = 1 if $opts->{'debugflags'}->{'network'};
+
+if ($preset->{'obsgit'}) {
+  eval { require YAML::XS; $YAML::XS::LoadBlessed = 0; };
+  die("Need YAML::XS to parse the obs configuration\n") unless defined &YAML::XS::LoadFile;
+  my $obsgit = $preset->{'obsgit'};
+  die("invalid obsgit url $obsgit \n") unless $obsgit =~ /^(?:git\+)?(https?:\/\/[^\/]+)\/(.+)$/;
+  my $gitrepo = $2;
+  my $assetmgr = PBuild::AssetMgr::create("$dir/.pbuild/_assets");
+  my $asset = { 'file' => 'configuration', 'url' => "git+$1/obs/configuration", 'type' => 'url', 'isdir' => 1 };
+  $asset->{'assetid'} = PBuild::AssetMgr::get_assetid($asset->{'file'}, $asset);
+  $assetmgr->force_update_single($asset) if $opts->{'update-assets'};
+  my $assetfile = $assetmgr->get_asset_cachefile($asset);
+  if (! -e $assetfile) {
+    print "fetching obs configuration asset\n";
+    $assetmgr->getremoteasset_single($asset);
+    die("obs configuration not found\n") unless -e $assetfile;
+  }
+  my $configuration_yaml;
+  PBuild::Cpio::cpio_extract($assetfile, sub {\$configuration_yaml} , 'extract' => 'configuration.yaml', 'missingok' => 1);
+  die("obs configuration does not include a configuration.yaml file\n") unless defined $configuration_yaml;
+  my $obsconfiguration = eval { YAML::XS::Load($configuration_yaml) };
+  die("could not parse obs configuration: $@") if $@;
+  # fill preset with data from the configuration
+  $preset->{'obs'} = $obsconfiguration->{'obs_apiurl'} unless defined $preset->{'obs'};
+  my $obsprj = $gitrepo;
+  $obsprj =~ s/[\/#]/:/g;
+  $obsprj =~ s/(?::main|:master)$//;
+  $obsprj = "$obsprj/standard";
+  $preset->{'config'} ||= [ "obs:/$obsprj" ];
+}
+
 # apply presets
 PBuild::Preset::apply_preset($opts, $preset) if $preset;
 print "Using default preset: $preset->{'name'}\n" if $preset && !$opts->{'preset'};
@@ -181,9 +214,6 @@ if ($opts->{'result-code'} || $opts->{'result-pkg'}) {
   PBuild::Result::print_result($opts, $builddir);
   exit;
 }
-
-# setup network debug if requested
-$Build::Download::debug = 1 if $opts->{'debugflags'}->{'network'};
 
 my $cross = $myarch ne $hostarch && $opts->{'hostrepo'} ? 1 : 0;
 
