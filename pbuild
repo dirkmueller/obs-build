@@ -79,8 +79,17 @@ if ($opts->{'list-presets'}) {
   exit;
 }
 
+# read old options
+my $oldlastdata = PBuild::Util::retrieve("$dir/.pbuild/lastdata", 1) || {};
+if (!defined($opts->{'preset'}) && $oldlastdata->{'preset'}) {
+  # take preset from old data
+  $opts->{'preset'} = $oldlastdata->{'preset'};
+  print "Using last preset: $opts->{'preset'}\n";
+}
+
 # read preset
-my $preset = PBuild::Preset::read_presets($dir, $opts->{'preset'});
+my $preset;
+$preset = PBuild::Preset::read_presets($dir, $opts->{'preset'}) unless defined($opts->{'preset'}) && $opts->{'preset'} eq '';
 my $hostarch = $opts->{'hostarch'};
 if (!$hostarch) {
   $hostarch = (POSIX::uname())[4];
@@ -89,8 +98,7 @@ if (!$hostarch) {
   $hostarch = 'armv7hl' if $hostarch eq 'armv7l';
 }
 
-# read old options
-my $oldlastdata = PBuild::Util::retrieve("$dir/.pbuild/lastdata", 1) || {};
+# figure out the potential buildir
 my $oldreponame = ($preset || {})->{'name'};
 my $oldmyarch = ($preset || {})->{'arch'} || $hostarch;
 my $olddist = ($preset || {})->{'config'} || $opts->{'dist'};
@@ -151,7 +159,7 @@ $opts->{'buildjobs'} = 32 if $opts->{'buildjobs'} > 32;
 # setup network debug if requested
 $Build::Download::debug = 1 if $opts->{'debugflags'}->{'network'};
 
-if ($preset->{'obsgit'}) {
+if ($preset && $preset->{'obsgit'}) {
   eval { require YAML::XS; $YAML::XS::LoadBlessed = 0; };
   die("Need YAML::XS to parse the obs configuration\n") unless defined &YAML::XS::LoadFile;
   my $obsgit = $preset->{'obsgit'};
@@ -207,6 +215,7 @@ if (!$opts->{'dist'} && !(-e "$dir/_config" || -e "$dir/_pbuild")) {
 
 # update lastdata and lastopts
 my $newlastdata = { 'builddir' => $builddir };
+$newlastdata->{'preset'} = $opts->{'preset'} if defined($opts->{'preset'}) && $opts->{'preset'} ne '';
 eval { PBuild::Util::mkdir_p("$dir/.pbuild") ; PBuild::Util::store_unless_identical("$dir/.pbuild/.lastdata.$$", "$dir/.pbuild/lastdata", $newlastdata, $oldlastdata) };
 eval { PBuild::Util::mkdir_p("$builddir/.pbuild") ; PBuild::Util::store_unless_identical("$builddir/.pbuild/.lastopts.$$", "$builddir/.pbuild/lastopts", $newlastopts, $oldlastopts) };
 
