@@ -182,6 +182,30 @@ sub prune_cached_assets {
 }
 
 #
+# return the name of the cache file for an asset
+#
+sub get_asset_cachefile {
+  my ($assetmgr, $asset) = @_;
+  my $assetdir = $assetmgr->{'asset_dir'};
+  my $assetid = $asset->{'assetid'};
+  die("get_asset_cachefile: asset does not have an assetid\n") unless $assetid;
+  my $adir = "$assetdir/".substr($assetid, 0, 2);
+  return "$adir/$assetid";
+}
+
+#
+# fetch a single remote asset (only type url supported for now)
+#
+sub getremoteasset_single {
+  my ($assetmgr, $asset) = @_;
+  ($asset) = prune_cached_assets($assetmgr, $asset);
+  if ($asset) {
+    die("getoneremoteasset: unsupported asset type $asset->{'type'}\n") if $asset->{'type'} ne 'url';
+    PBuild::RemoteAssets::fetch_url_asset($assetmgr->{'asset_dir'}, $asset);
+  }
+}
+
+#
 # Make sure that we have all remote assets in our on-disk cache
 #
 sub getremoteassets {
@@ -307,6 +331,11 @@ sub force_update {
   for my $asset (values %{$p->{'asset_files'} || {}}) {
     PBuild::RemoteAssets::force_update($assetdir, $asset) unless $asset->{'digest'} || $asset->{'immutable'};
   }
+}
+
+sub force_update_single {
+  my ($assetmgr, $asset) = @_;
+  PBuild::RemoteAssets::force_update($assetmgr->{'asset_dir'}, $asset) unless $asset->{'digest'} || $asset->{'immutable'};
 }
 
 1;
