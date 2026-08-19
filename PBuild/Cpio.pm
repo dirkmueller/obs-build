@@ -70,6 +70,16 @@ sub copyout {
   close($fd);
 }
 
+sub copyin_ref {
+  my ($ifd, $file, $size) = @_;
+  $$file = '' unless defined $$file;
+  while ($size > 0) {
+    my $chunk = cpio_read($ifd, $size > 65536 ? 65536 : $size);
+    $$file .= $chunk;
+    $size -= length($chunk);
+  }
+}
+
 sub copyin {
   my ($ifd, $file, $size) = @_;
   my $fd;
@@ -207,27 +217,34 @@ sub cpio_extract {
       skipin($fd, $size + $pad);
       next;
     }
-    PBuild::Util::mkdir_p($1) if $name =~ /\// && $outfile =~ /(.*)\//;
-    if ($ent->{'cpiotype'} == 4) {
-      if (-l $outfile || ! -d _) {
-        mkdir($outfile, 0755) || die("mkdir $outfile: $!\n");
-      }
-    } elsif ($ent->{'cpiotype'} == 10) {
-      die("illegal symlink size\n") if $size > 65535;
-      my $lnk = cpio_read($fd, $size);
-      unlink($outfile);
-      if ($opts{'postpone_symlinks'}) {
-	$symlinks{$outfile} = $lnk;
-      } else {
-        symlink($lnk, $outfile) || die("symlink $lnk $outfile: $!\n");
-      }
-    } elsif ($ent->{'cpiotype'} == 8) {
-      unlink($outfile);
-      copyin($fd, $outfile, $size);
+    my $cpiotype = $ent->{'cpiotype'};
+    if (ref($outfile)) {
+      die("unsupported cpio type $cpiotype\n") unless $cpiotype == 8 || $cpiotype == 10;
+      copyin_ref($fd, $outfile, $size);
     } else {
-      die("unsupported cpio type $ent->{'cpiotype'}\n");
+      PBuild::Util::mkdir_p($1) if $name =~ /\// && $outfile =~ /(.*)\// && ! -d $1;
+      unlink($outfile) if $cpiotype == 8 || $cpiotype == 10;
+      if ($cpiotype == 4) {
+	if (-l $outfile || ! -d _) {
+	  mkdir($outfile, 0755) || die("mkdir $outfile: $!\n");
+	}
+      } elsif ($cpiotype == 10) {
+	die("illegal symlink size\n") if $size > 65535;
+	my $lnk = cpio_read($fd, $size);
+	if (ref($outfile)) {
+	  $$outfile = $lnk;
+	} elsif ($opts{'postpone_symlinks'}) {
+	  $symlinks{$outfile} = $lnk;
+	} else {
+	  symlink($lnk, $outfile) || die("symlink $lnk $outfile: $!\n");
+	}
+      } elsif ($cpiotype == 8) {
+	copyin($fd, $outfile, $size);
+      } else {
+	die("unsupported cpio type $cpiotype\n");
+      }
+      set_mode_mtime($ent, $outfile, \%opts) if $cpiotype != 10;
     }
-    set_mode_mtime($ent, $outfile, \%opts) if $ent->{'cpiotype'} != 10;
     if (ref($out) eq 'CODE') {
       last if $out->($ent, $outfile);
     }
