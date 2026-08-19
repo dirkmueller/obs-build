@@ -351,7 +351,7 @@ sub ipfs_fetch {
   }
 }
 
-# Generic url asset support
+# Generic url asset support (file + git)
 
 sub get_git_commit {
   my ($url, $branch, $tmpdir) = @_;
@@ -372,6 +372,9 @@ sub get_git_commit {
   return $refs{"refs/heads/$branch"} || $refs{"refs/tags/$branch^{}"};
 }
 
+#
+# fetch a single url asset pointing to a git repository
+#
 sub fetch_git_asset {
   my ($assetdir, $asset) = @_;
   my $assetid = $asset->{'assetid'};
@@ -379,7 +382,7 @@ sub fetch_git_asset {
   my $file = $asset->{'file'};
   PBuild::Util::mkdir_p($adir);
   my $url = $asset->{'url'};
-  die unless $url =~ /^git(?:\+https?)?:/;
+  die("bad git asset\n") unless $url =~ /^git(?:\+https?)?:/;
   $url =~ s/^git\+//;
   my $branch;
   $branch = $1 if $url =~ s/#([^#]+)$//;
@@ -461,6 +464,33 @@ sub fetch_git_asset {
 }
 
 #
+# fetch a single url asset
+#
+sub fetch_url_asset {
+  my ($assetdir, $asset) = @_;
+  my $url = $asset->{'url'};
+  die("not an url asset\n") unless $asset->{'type'} eq 'url' && $url;
+  return fetch_git_asset($assetdir, $asset) if $url =~ /^git(?:\+https?)?:/;
+  my $assetid = $asset->{'assetid'};
+  my $adir = "$assetdir/".substr($assetid, 0, 2);
+  PBuild::Util::mkdir_p($adir);
+  my $etag;
+  $etag = get_etag("$adir/$assetid") if -s "$adir/$assetid.etag";
+  my $headers = $etag ? [ 'If-None-Match' => $etag ] : undef;
+  my $rh = {};
+  my $code = eval { Build::Download::download($url, "$adir/.$assetid.$$", undef, 'retry' => 3, 'digest' => $asset->{'digest'}, 'missingok' => 1, 'notmodifiedok' => ($etag ? 1 : undef), 'headers' => $headers, 'replyheaders' => \$rh) };
+  warn($@) if $@;
+  if ($code && $code == 304) {
+    return if get_etag("$adir/$assetid", $etag, 1);
+    # retry without the If-None-Match header
+    undef $etag;
+    $code = eval { Build::Download::download($url, "$adir/.$assetid.$$", undef, 'retry' => 3, 'digest' => $asset->{'digest'}, 'missingok' => 1, 'replyheaders' => \$rh) };
+    warn($@) if $@;
+  }
+  rename_unless_present("$adir/.$assetid.$$", "$adir/$assetid", $rh->{'etag'}) if $code;
+}
+
+#
 # generic resource fetcher
 #
 sub url_fetch {
@@ -478,27 +508,7 @@ sub url_fetch {
     my $tofetch = $tofetch_host{$hosturl};
     print "fetching ".PBuild::Util::plural(scalar(@$tofetch), 'asset')." from $hosturl\n";
     for my $asset (@$tofetch) {
-      if ($asset->{'url'} =~ /^git(?:\+https?)?:/) {
-	fetch_git_asset($assetdir, $asset);
-	next;
-      }
-      my $assetid = $asset->{'assetid'};
-      my $adir = "$assetdir/".substr($assetid, 0, 2);
-      PBuild::Util::mkdir_p($adir);
-      my $etag;
-      $etag = get_etag("$adir/$assetid") if -s "$adir/$assetid.etag";
-      my $headers = $etag ? [ 'If-None-Match' => $etag ] : undef;
-      my $rh = {};
-      my $code = eval { Build::Download::download($asset->{'url'}, "$adir/.$assetid.$$", undef, 'retry' => 3, 'digest' => $asset->{'digest'}, 'missingok' => 1, 'notmodifiedok' => ($etag ? 1 : undef), 'headers' => $headers, 'replyheaders' => \$rh) };
-      warn($@) if $@;
-      if ($code && $code == 304) {
-	next if get_etag("$adir/$assetid", $etag, 1);
-	# retry without the If-None-Match header
-	undef $etag;
-	$code = eval { Build::Download::download($asset->{'url'}, "$adir/.$assetid.$$", undef, 'retry' => 3, 'digest' => $asset->{'digest'}, 'missingok' => 1, 'replyheaders' => \$rh) };
-        warn($@) if $@;
-      }
-      rename_unless_present("$adir/.$assetid.$$", "$adir/$assetid", $rh->{'etag'}) if $code;
+      fetch_url_asset($assetdir, $asset);
     }
   }
 }
