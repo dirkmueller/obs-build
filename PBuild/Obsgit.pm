@@ -23,15 +23,12 @@ package PBuild::Obsgit;
 use PBuild::AssetMgr;
 use PBuild::Cpio;
 
-sub merge_obsgit_data {
-  my ($preset, $assetdir, $opts) = @_;
-  eval { require YAML::XS; $YAML::XS::LoadBlessed = 0; };
-  die("Need YAML::XS to parse the obs configuration\n") unless defined &YAML::XS::LoadFile;
-  my $obsgit = $preset->{'obsgit'};
-  die("invalid obsgit url $obsgit \n") unless $obsgit =~ /^(?:git\+)?(https?:\/\/[^\/]+)\/(.+)$/;
-  my $gitrepo = $2;
+my $obs_configuration_repo = 'obs/configuration';
+
+sub get_obs_configuration {
+  my ($giturl, $assetdir, $opts) = @_;
   my $assetmgr = PBuild::AssetMgr::create($assetdir);
-  my $asset = { 'file' => 'configuration', 'url' => "git+$1/obs/configuration", 'type' => 'url', 'isdir' => 1 };
+  my $asset = { 'file' => 'configuration', 'url' => $giturl, 'type' => 'url', 'isdir' => 1 };
   $asset->{'assetid'} = PBuild::AssetMgr::get_assetid($asset->{'file'}, $asset);
   $assetmgr->force_update_single($asset) if $opts->{'update-assets'};
   my $assetfile = $assetmgr->getremoteasset_single($asset, 1);
@@ -45,6 +42,17 @@ sub merge_obsgit_data {
   die("obs configuration does not include a configuration.yaml file\n") unless defined $configuration_yaml;
   my $obsconfiguration = eval { YAML::XS::Load($configuration_yaml) };
   die("could not parse obs configuration: $@") if $@;
+  return $obsconfiguration;
+}
+
+sub merge_obsgit_data {
+  my ($preset, $assetdir, $opts) = @_;
+  eval { require YAML::XS; $YAML::XS::LoadBlessed = 0; };
+  die("Need YAML::XS to parse the obs configuration\n") unless defined &YAML::XS::LoadFile;
+  my $obsgit = $preset->{'obsgit'};
+  die("invalid obsgit url $obsgit \n") unless $obsgit =~ /^(?:git\+)?(https?:\/\/[^\/]+)\/(.+)$/;
+  my $gitrepo = $2;
+  my $obsconfiguration = get_obs_configuration("git+$1/$obs_configuration_repo", $assetdir, $opts);
   # fill preset with data from the configuration
   $preset->{'obs'} = $obsconfiguration->{'obs_apiurl'} unless defined $preset->{'obs'};
   my $obsprj = $gitrepo;
