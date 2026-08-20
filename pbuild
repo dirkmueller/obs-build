@@ -87,6 +87,8 @@ my $newlastdata = PBuild::Options::merge_old_global_options($opts, $oldlastdata)
 # read preset
 my $preset;
 $preset = PBuild::Preset::read_presets($dir, $opts->{'preset'}) unless defined($opts->{'preset'}) && $opts->{'preset'} eq '';
+my $isdefaultpreset = $preset && !$opts->{'preset'} ? ' (default)' : '';
+
 my $hostarch = $opts->{'hostarch'};
 if (!$hostarch) {
   $hostarch = (POSIX::uname())[4];
@@ -160,7 +162,6 @@ PBuild::Obsgit::merge_obsgit_data($preset, "$dir/.pbuild/_assets", $opts) if $pr
 
 # apply presets
 PBuild::Preset::apply_preset($opts, $preset) if $preset;
-print "Using default preset: $preset->{'name'}\n" if $preset && !defined($opts->{'preset'});
 
 $opts->{'arch'} ||= $hostarch;
 my $myarch = $opts->{'arch'};
@@ -238,7 +239,7 @@ die("cross project config: $bconf_host->{'parse_error'}\n") if $bconf_host && $b
 # make sure our config includes some basic setup
 if (!@{($bconf_host || $bconf)->{'preinstall'} || []}) {
   if ($preset) {
-    print("Preset $preset->{'name'} does not contain a build setup definition.\n");
+    print("Preset $preset->{'name'}$isdefaultpreset does not contain a build setup definition.\n");
     print("Please specify a distribution with the --dist option.\n");
     exit;
   }
@@ -291,7 +292,7 @@ print "    single build: $opts->{'single'}\n" if $opts->{'single'} && !$opts->{'
 print "    build area: $opts->{'root'}\n";
 print "    architecture: $myarch\n";
 print "    host architecture: $hostarch\n" if $cross;
-print "    preset: $preset->{'name'}\n" if $preset;
+print "    preset: $preset->{'name'}$isdefaultpreset\n" if $preset;
 if (@{$opts->{'dist'} || []}) {
   print "    build config:\n";
   print "      - $_\n" for @{$opts->{'dist'}};
