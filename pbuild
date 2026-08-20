@@ -543,9 +543,9 @@ if ($cross) {
 
 # setup builders
 my @builders;
-my $nbuildjobs = $opts->{'buildjobs'};
-$nbuildjobs = 1 if $opts->{'showlog'} || $opts->{'single'};
-for my $no (1..$opts->{'buildjobs'}) {
+my $nbuilders = $opts->{'buildjobs'};
+$nbuilders = 1 if $opts->{'showlog'} || $opts->{'single'};
+for my $no (1..$nbuilders) {
   my $broot = $opts->{'root'};
   if ($opts->{'buildjobs'} > 1) {
     $broot .= '/%I' if $broot !~ /%I/;
@@ -555,7 +555,7 @@ for my $no (1..$opts->{'buildjobs'}) {
     'name' => $no,
     'root' => $broot,
     'idx' => scalar(@builders),
-    'nbuilders' => $nbuildjobs,
+    'nbuilders' => $nbuilders,
   };
 }
 
