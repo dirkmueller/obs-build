@@ -195,14 +195,18 @@ sub get_asset_cachefile {
 
 #
 # fetch a single remote asset (only type url supported for now)
+# returns the asset cachefile if the asset is available, otherwise undef
 #
 sub getremoteasset_single {
-  my ($assetmgr, $asset) = @_;
-  ($asset) = prune_cached_assets($assetmgr, $asset);
-  if ($asset) {
-    die("getoneremoteasset: unsupported asset type $asset->{'type'}\n") if $asset->{'type'} ne 'url';
+  my ($assetmgr, $asset, $nofetch) = @_;
+  my $assetfile = get_asset_cachefile($assetmgr, $asset);
+  return $assetfile if -e $assetfile;
+  if (!$nofetch) {
+    die("getremoteasset_single: unsupported asset type $asset->{'type'}\n") if $asset->{'type'} ne 'url';
     PBuild::RemoteAssets::fetch_url_asset($assetmgr->{'asset_dir'}, $asset);
+    return $assetfile if -e $assetfile;
   }
+  return undef;
 }
 
 #

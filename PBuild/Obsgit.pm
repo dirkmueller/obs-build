@@ -34,14 +34,14 @@ sub merge_obsgit_data {
   my $asset = { 'file' => 'configuration', 'url' => "git+$1/obs/configuration", 'type' => 'url', 'isdir' => 1 };
   $asset->{'assetid'} = PBuild::AssetMgr::get_assetid($asset->{'file'}, $asset);
   $assetmgr->force_update_single($asset) if $opts->{'update-assets'};
-  my $assetfile = $assetmgr->get_asset_cachefile($asset);
-  if (! -e $assetfile) {
+  my $assetfile = $assetmgr->getremoteasset_single($asset, 1);
+  if (!$assetfile) {
     print "fetching obs configuration asset\n";
-    $assetmgr->getremoteasset_single($asset);
-    die("obs configuration not found\n") unless -e $assetfile;
+    $assetfile = $assetmgr->getremoteasset_single($asset);
+    die("obs configuration not found\n") unless $assetfile;
   }
   my $configuration_yaml;
-  PBuild::Cpio::cpio_extract($assetfile, sub {\$configuration_yaml} , 'extract' => 'configuration.yaml', 'missingok' => 1);
+  PBuild::Cpio::cpio_extract($assetfile, sub {\$configuration_yaml} , 'extract' => 'configuration/configuration.yaml', 'missingok' => 1);
   die("obs configuration does not include a configuration.yaml file\n") unless defined $configuration_yaml;
   my $obsconfiguration = eval { YAML::XS::Load($configuration_yaml) };
   die("could not parse obs configuration: $@") if $@;
