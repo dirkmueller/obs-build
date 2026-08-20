@@ -398,7 +398,7 @@ sub fetch_git_asset {
   PBuild::Util::rm_rf($tmpdir);
   PBuild::Util::mkdir_p($tmpdir);
   my $immutable;
-  if ($branch =~ /^[0-9a-fA-F]{40,}$/) {
+  if ($branch && $branch =~ /^[0-9a-fA-F]{40,}$/) {
     print "GIT-CLONE $url commit=$branch\n" if $Build::Download::debug;
     $immutable = 1;
     my $objectformat = length($branch) == 64 ? 'sha256' : 'sha1';
