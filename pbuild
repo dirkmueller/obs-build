@@ -35,6 +35,7 @@ use POSIX;
 use Cwd ();
 
 use Build;
+use Build::Download;
 
 use PBuild::Source;
 use PBuild::Recipe;
@@ -48,10 +49,10 @@ use PBuild::Link;
 use PBuild::Checker;
 use PBuild::Options;
 use PBuild::Result;
-use Build::Download;
 use PBuild::Preset;
 use PBuild::Distro;
 use PBuild::Repoquery;
+use PBuild::Obsgit;
 
 my $libbuild = $INC[0];
 
@@ -127,7 +128,6 @@ die("Option --extra-packs only works with --single\n") if $opts->{'extra-packs'}
 die("Option --buildflavor only works with --single\n") if $opts->{'buildflavor'} && !$opts->{'single'};
 $opts->{'showlog'} = 1 if $opts->{'shell'} || $opts->{'shell-after-fail'};
 $opts->{'showlog'} = 1 if $opts->{'single'} && !defined($opts->{'showlog'});
-$opts->{'buildjobs'} = 1 if $opts->{'showlog'} || $opts->{'single'};
 $opts->{'single'} .= ":$opts->{'buildflavor'}" if $opts->{'single'} && !$opts->{'orphan'} && $opts->{'buildflavor'};
 $opts->{'single'} = $opts->{'buildflavor'} || '(main)' if $opts->{'orphan-multi'} && defined($opts->{'buildflavor'});
 
@@ -159,39 +159,15 @@ $opts->{'buildjobs'} = 32 if $opts->{'buildjobs'} > 32;
 # setup network debug if requested
 $Build::Download::debug = 1 if $opts->{'debugflags'}->{'network'};
 
-if ($preset && $preset->{'obsgit'}) {
-  eval { require YAML::XS; $YAML::XS::LoadBlessed = 0; };
-  die("Need YAML::XS to parse the obs configuration\n") unless defined &YAML::XS::LoadFile;
-  my $obsgit = $preset->{'obsgit'};
-  die("invalid obsgit url $obsgit \n") unless $obsgit =~ /^(?:git\+)?(https?:\/\/[^\/]+)\/(.+)$/;
-  my $gitrepo = $2;
-  my $assetmgr = PBuild::AssetMgr::create("$dir/.pbuild/_assets");
-  my $asset = { 'file' => 'configuration', 'url' => "git+$1/obs/configuration", 'type' => 'url', 'isdir' => 1 };
-  $asset->{'assetid'} = PBuild::AssetMgr::get_assetid($asset->{'file'}, $asset);
-  $assetmgr->force_update_single($asset) if $opts->{'update-assets'};
-  my $assetfile = $assetmgr->get_asset_cachefile($asset);
-  if (! -e $assetfile) {
-    print "fetching obs configuration asset\n";
-    $assetmgr->getremoteasset_single($asset);
-    die("obs configuration not found\n") unless -e $assetfile;
-  }
-  my $configuration_yaml;
-  PBuild::Cpio::cpio_extract($assetfile, sub {\$configuration_yaml} , 'extract' => 'configuration.yaml', 'missingok' => 1);
-  die("obs configuration does not include a configuration.yaml file\n") unless defined $configuration_yaml;
-  my $obsconfiguration = eval { YAML::XS::Load($configuration_yaml) };
-  die("could not parse obs configuration: $@") if $@;
-  # fill preset with data from the configuration
-  $preset->{'obs'} = $obsconfiguration->{'obs_apiurl'} unless defined $preset->{'obs'};
-  my $obsprj = $gitrepo;
-  $obsprj =~ s/[\/#]/:/g;
-  $obsprj =~ s/(?::main|:master)$//;
-  $obsprj = "$obsprj/standard";
-  $preset->{'config'} ||= [ "obs:/$obsprj" ];
-}
+# merge obsgit data if requested
+PBuild::Obsgit::merge_obsgit_data($preset, "$dir/.pbuild/_assets", $opts) if $preset && $preset->{'obsgit'};
 
 # apply presets
 PBuild::Preset::apply_preset($opts, $preset) if $preset;
 print "Using default preset: $preset->{'name'}\n" if $preset && !defined($opts->{'preset'});
+
+$opts->{'arch'} ||= $hostarch;
+my $myarch = $opts->{'arch'};
 
 my $reponame = $opts->{'reponame'};
 if (!$reponame && $opts->{'dist'}) {
@@ -201,10 +177,6 @@ if (!$reponame && $opts->{'dist'}) {
   $reponame =~ s/\.conf$//;
   $reponame =~ s/[:\s]+/_/g;
 }
-
-$opts->{'arch'} ||= $hostarch;
-my $myarch = $opts->{'arch'};
-
 my $builddir = $reponame && $reponame ne $myarch ? "$dir/_build.$reponame.$myarch" : "$dir/_build.$myarch";
 
 # die early if we have no dist/config so that we do not create the buildir
@@ -575,6 +547,8 @@ if ($cross) {
 
 # setup builders
 my @builders;
+my $nbuildjobs = $opts->{'buildjobs'};
+$nbuildjobs = 1 if $opts->{'showlog'} || $opts->{'single'};
 for my $no (1..$opts->{'buildjobs'}) {
   my $broot = $opts->{'root'};
   if ($opts->{'buildjobs'} > 1) {
@@ -585,7 +559,7 @@ for my $no (1..$opts->{'buildjobs'}) {
     'name' => $no,
     'root' => $broot,
     'idx' => scalar(@builders),
-    'nbuilders' => $opts->{'buildjobs'},
+    'nbuilders' => $nbuildjobs,
   };
 }
 
