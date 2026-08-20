@@ -82,11 +82,7 @@ if ($opts->{'list-presets'}) {
 
 # read old options
 my $oldlastdata = PBuild::Util::retrieve("$dir/.pbuild/lastdata", 1) || {};
-if (!defined($opts->{'preset'}) && defined($oldlastdata->{'preset'})) {
-  # take preset from old data
-  $opts->{'preset'} = $oldlastdata->{'preset'};
-  print "Using last preset: $opts->{'preset'}\n" if $opts->{'preset'} ne '';
-}
+my $newlastdata = PBuild::Options::merge_old_global_options($opts, $oldlastdata);
 
 # read preset
 my $preset;
@@ -100,8 +96,8 @@ if (!$hostarch) {
 }
 
 # figure out the potential buildir
-my $oldreponame = ($preset || {})->{'name'};
-my $oldmyarch = ($preset || {})->{'arch'} || $hostarch;
+my $oldreponame = $opts->{'reponame'} || ($preset || {})->{'name'};
+my $oldmyarch = $opts->{'arch'} || ($preset || {})->{'arch'} || $hostarch;
 my $olddist = ($preset || {})->{'config'} || $opts->{'dist'};
 if (!$oldreponame && $olddist) {
   $oldreponame = $olddist->[0];
@@ -186,8 +182,7 @@ if (!$opts->{'dist'} && !(-e "$dir/_config" || -e "$dir/_pbuild")) {
 }
 
 # update lastdata and lastopts
-my $newlastdata = { 'builddir' => $builddir };
-$newlastdata->{'preset'} = $opts->{'preset'} if defined($opts->{'preset'});
+$newlastdata->{'builddir'} = $builddir;		# always put the buildir in lastdata
 eval { PBuild::Util::mkdir_p("$dir/.pbuild") ; PBuild::Util::store_unless_identical("$dir/.pbuild/.lastdata.$$", "$dir/.pbuild/lastdata", $newlastdata, $oldlastdata) };
 eval { PBuild::Util::mkdir_p("$builddir/.pbuild") ; PBuild::Util::store_unless_identical("$builddir/.pbuild/.lastopts.$$", "$builddir/.pbuild/lastopts", $newlastopts, $oldlastopts) };
 

@@ -229,10 +229,22 @@ EOS
   exit($exitstatus) if defined $exitstatus;
 }
 
+# options that belong to a specific builddir
 sub merge_old_options {
   my ($opts, $oldopts) = @_;
   my $newopts = {};
-  for (qw{preset dist repo hostrepo registry assets obs configdir root jobs threads buildjobs orphan orphan-multi}) {
+  for (qw{dist repo hostrepo registry assets obs configdir root jobs threads buildjobs orphan orphan-multi}) {
+    $opts->{$_} = $oldopts->{$_} if !exists($opts->{$_}) && exists($oldopts->{$_});
+    $newopts->{$_} = $opts->{$_} if exists($opts->{$_});
+  }
+  return $newopts;
+}
+
+# options that define the builddir name
+sub merge_old_global_options {
+  my ($opts, $oldopts) = @_;
+  my $newopts = {};
+  for (qw{preset arch reponame}) {
     $opts->{$_} = $oldopts->{$_} if !exists($opts->{$_}) && exists($oldopts->{$_});
     $newopts->{$_} = $opts->{$_} if exists($opts->{$_});
   }
