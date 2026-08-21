@@ -813,7 +813,7 @@ sub normalize_tokenized_license {
       my $nt = $known_license_exceptions{lc($t)};
       $t = $nt ? $nt : $unknown_exception_cb ? $unknown_exception_cb->($t) : undef;
     } elsif (ref $t) {
-      $t = normalize_tokenized_license($t, $spdx_licenses, $spdx_license_exceptions);
+      $t = normalize_tokenized_license($t, $unknown_license_cb, $unknown_exception_cb);
       $t = "($t)" if defined $t;
     } else {
       my $plusidx = @n && $n[0] eq 'PLUS' ? 2 : 0;
