@@ -189,6 +189,12 @@ sub unpack_container {
   return "$dir/unpack/rootfs";
 }
 
+sub unpack_iso {
+  my ($dir, $iso) = @_;
+  systemq('7z', "-o$dir/unpack", 'x', $iso);
+  return "$dir/unpack";
+}
+
 
 ##################################################################################################
 #
@@ -1097,43 +1103,55 @@ $no_files_generation = ($config->{'buildflags:spdx-files-generation'} || '') eq 
 $buildtime = $opts->{'buildtime'} || time();
 
 my $targettype;
+my $unpackdir;
+
+# unpack into a directory if the argument is a file
+if (($opts->{'type'} eq 'product' || $opts->{'type'} eq 'dir') && $toprocess =~ /\.iso$/ && -f $toprocess) {
+  $unpackdir = unpack_iso($tmpdir, $toprocess);
+} elsif ($opts->{'type'} eq 'docker-archive' || $opts->{'type'} eq 'oci-archive') {
+  $unpackdir = unpack_container($tmpdir, $toprocess, $opts->{'type'});
+} else {
+  $unpackdir = $toprocess;
+}
 
 if ($opts->{'type'} eq 'product') {
   # product case
   $targettype = 'library';
-  #$files = gen_filelist($toprocess);
-  $pkgs = read_pkgs_from_product_directory($toprocess);
+  #$files = gen_filelist($unpackdir);
+  $pkgs = read_pkgs_from_product_directory($unpackdir);
 } elsif ($opts->{'type'} eq 'rpmmd') {
   $targettype = 'library';
+  my $primaryfile;
   require Build::Rpmmd;
-  if (-d $toprocess) {
-    $toprocess = "$toprocess/repodata" unless -f "$toprocess/repomd.xml";
-    my %d = map {$_->{'type'} => $_} @{Build::Rpmmd::parse_repomd("$toprocess/repomd.xml")};
+  if (-d $unpackdir) {
+    my $repodatadir = -f "$unpackdir/repomd.xml" ? $unpackdir : "$unpackdir/repodata";
+    my %d = map {$_->{'type'} => $_} @{Build::Rpmmd::parse_repomd("$repodatadir/repomd.xml")};
     my $primary = $d{'primary'};
     die("no primary type in repomd.xml\n") unless $primary;
     my $loc = $primary->{'location'};
     $loc =~ s/.*\///;
-    $toprocess .= "/$loc";
+    $primaryfile = "$repodatadir/$loc";
+  } else {
+    $primaryfile = $unpackdir;
   }
-  die("$toprocess: $!\n") unless -e $toprocess;
-  $pkgs = read_pkgs_from_rpmmd($toprocess);
+  die("$primaryfile: $!\n") unless -e $primaryfile;
+  $pkgs = read_pkgs_from_rpmmd($primaryfile);
 } elsif ($opts->{'type'} eq 'dir') {
   $targettype = 'application';
-  $dist = read_dist($toprocess);
+  $dist = read_dist($unpackdir);
   $pkgtype = pkgtype_from_dist($dist);
   #if it is a ubuntu id_like contains debian
   if ($pkgtype eq 'deb') {
-    $pkgs = read_pkgs_deb($toprocess);
+    $pkgs = read_pkgs_deb($unpackdir);
   } elsif ($pkgtype eq 'rpm') {
-    dump_rpmdb($toprocess, "$tmpdir/rpmdb");
+    dump_rpmdb($unpackdir, "$tmpdir/rpmdb");
     $pkgs = read_pkgs_rpmdb("$tmpdir/rpmdb");
   }
-  $files = gen_filelist($toprocess);
-  $filepkgs = introspect_filelist($toprocess, $files);
+  $files = gen_filelist($unpackdir);
+  $filepkgs = introspect_filelist($unpackdir, $files);
 } elsif ($opts->{'type'} eq 'docker-archive' || $opts->{'type'} eq 'oci-archive') {
-  # container tar case
+  # container archive case
   $targettype = 'container';
-  my $unpackdir = unpack_container($tmpdir, $toprocess, $opts->{'type'});
   $dist = read_dist($unpackdir);
   $pkgtype = pkgtype_from_dist($dist);
   $files = gen_filelist($unpackdir);
@@ -1286,7 +1304,7 @@ if ($opts->{'format'} eq 'spdx') {
 if ($opts->{'intoto'}) {
   my $subject = { 'name' => $subjectname };
   # no digest for products as it might be a directory. And an iso file would change the checksum later while signing.
-  $subject->{'digest'} = { 'sha256' => sha256file($toprocess) } unless $opts->{'type'} eq 'product' || $opts->{'type'} eq 'dir';
+  $subject->{'digest'} = { 'sha256' => sha256file($toprocess) } if -f $toprocess;
   $doc = {
     '_type' => "https://in-toto.io/Statement/$opts->{'intoto'}",
     'subject' => [ $subject ],
