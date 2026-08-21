@@ -91,7 +91,7 @@ sub rawbuildinfo {
   } else {
     my $prog = $elf->findprog(1, 3, 2);	# PT_LOAD, PF_W|PF_X, PF_W
     ($off, $len) = ($prog->{'addr'}, $prog->{'msize'} > $prog->{'size'} + 32 ? $prog->{'size'} + 32 : $prog->{'msize'}) if $prog;
-    $len = 1024 * 1024 if $len > 1024 * 1024;
+    $len = 1024 * 1024 if $len && $len > 1024 * 1024;
   }
   return unless defined $off;
   my $d = $elf->readmem($off, $len);
