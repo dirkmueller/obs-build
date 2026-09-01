@@ -1,4 +1,27 @@
 -------------------------------------------------------------------
+Tue Sep  1 08:56:40 UTC 2026 - Adrian Schröter <adrian@suse.de>
+
+- generate_sbom:
+  * SPDX V3 support
+  * support unpacking of iso files
+- pbuild
+  * also read presets from the _manifest file
+  * support 'obsgit' preset entries
+  * Pass --dist/--configdir/--arch
+  * Support an empty _manifest file
+  * also get container annotations from OBS
+  * bugfixes and refactoring
+  * reuse old container binary data if it matches
+  * Do not use a bind mount for /dev/ptmx
+  * Fix auth for multiple remote registry assets
+- Docker: 
+  * strip --mount and --network from RUN lines
+  * add support for #!FilterBaseContainerPkgs
+  * use BUILD_BUILDTIME in the containerinfo if it is set
+- Kiwi: also support BUILD_BUILDTIME
+- Support the new --orphan-multi build mode
+
+-------------------------------------------------------------------
 Tue Jul 21 09:21:49 UTC 2026 - Adrian Schröter <adrian@suse.de>
 
 - Add diffutils dependency for cmp command
