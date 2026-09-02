@@ -253,6 +253,7 @@ sub parse {
   my $plusrecommended;
   my $filterbasecontainerpkgs;
   my $useobsrepositories;
+  my $sbomnofilesgeneration;
   my $nosquash;
   my $dockerfile_data;
   if (ref($fn) eq 'SCALAR') {
@@ -322,6 +323,9 @@ sub parse {
       }
       if ($line =~ /^#!UseOBSRepositories\s*$/) {
         $useobsrepositories = 1;
+      }
+      if ($line =~ /^#!SbomNoFilesGeneration\s*$/) {
+        $sbomnofilesgeneration = 1;
       }
       if ($line =~ /^#!NoSquash\s*$/) {
         $nosquash = 1;
@@ -522,6 +526,7 @@ sub parse {
   }
   $ret->{'path'} = [ { 'project' => '_obsrepositories', 'repository' => '' } ] if $useobsrepositories;
   $ret->{'nosquash'} = 1 if $nosquash;
+  $ret->{'sbomnofilesgeneration'} = 1 if $sbomnofilesgeneration;
   $ret->{'basecontainer'} = $basecontainer if $basecontainer;
   $ret->{'exclarch'} = [ unify(@requiredarch) ] if @requiredarch;
   $ret->{'badarch'} = [ unify(@badarch) ] if @badarch;
